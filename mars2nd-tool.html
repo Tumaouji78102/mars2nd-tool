@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>マルス2nd 補助ツール【案2改：比較固定】</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #1a1a2e; color: #eee; font-size: 13px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ══ 上部バー ══ */
+#topbar {
+  display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap;
+  background: #0d1b2a; border-bottom: 1px solid #1a5276;
+  padding: 5px 6px; flex-shrink: 0;
+}
+.tb-section {
+  background: #16213e; border-radius: 5px; padding: 4px 8px;
+  display: flex; flex-direction: column; gap: 3px; min-width: 0; flex-shrink: 0;
+}
+.tb-section.spacer { flex: 1; min-width: 0; background: none; }
+.tb-title { font-size: 10px; color: #7fb3d3; font-weight: bold; white-space: nowrap; }
+.tb-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+button { background: #0f3460; color: #eee; border: 1px solid #1a5276; border-radius: 4px; padding: 3px 8px; cursor: pointer; font-size: 11px; white-space: nowrap; }
+button:hover { background: #1a5276; }
+button.small { padding: 2px 6px; font-size: 10px; }
+button.green { background: #1a4a2e; border-color: #27ae60; }
+button.green:hover { background: #27ae60; }
+button.active { background: #1a4a6e; border-color: #3498db; color: #7fb3d3; }
+select, input[type=number], input[type=text] { background: #0f3460; color: #eee; border: 1px solid #1a5276; border-radius: 4px; padding: 2px 5px; font-size: 11px; }
+input[type=text] { width: 72px; }
+.note { color: #7fb3d3; font-size: 10px; white-space: nowrap; }
+.warn-text { color: #e74c3c; font-weight: bold; font-size: 11px; }
+.count-badge { background: #0f3460; border-radius: 3px; padding: 1px 5px; font-size: 11px; }
+.pl-name-row { display: flex; gap: 3px; align-items: center; }
+.pl-name-row label { font-size: 10px; color: #7fb3d3; min-width: 28px; }
+
+/* ══ メインエリア ══ */
+#main { display: flex; flex: 1; overflow: hidden; position: relative; }
+
+/* リサイザー */
+#resizer {
+  width: 5px; background: #1a5276; cursor: col-resize; flex-shrink: 0;
+  transition: background 0.15s;
+}
+#resizer:hover { background: #3498db; }
+
+/* 左カラム */
+#left-col {
+  width: 240px; min-width: 120px; max-width: 60vw;
+  flex-shrink: 0; display: flex; flex-direction: column;
+  background: #131328; overflow: hidden;
+}
+/* 左カラム上部：山札・捨札 */
+#left-top {
+  flex-shrink: 0; padding: 6px;
+  display: flex; gap: 8px; align-items: flex-start;
+  border-bottom: 1px solid #1a5276;
+}
+/* 左カラム中部：手札（flex-growで残りを使う） */
+#hand-section {
+  flex: 1; display: flex; flex-direction: column; padding: 4px 6px; overflow: hidden; min-height: 0;
+}
+/* 手札スクロールエリア */
+#handArea {
+  flex: 1; overflow-x: auto; overflow-y: hidden;
+  display: flex; flex-wrap: nowrap; align-items: flex-start;
+  padding: 4px; border: 1px dashed #2a4a6a; border-radius: 5px; min-height: 84px;
+  transition: border-color 0.12s, background 0.12s;
+}
+#handArea.drag-over      { border-color: #f1c40f; background: #1e2e1e; }
+#handArea.drag-over-deck { border-color: #3498db; background: #0d1b2e; }
+
+/* 右カラム */
+#right-col { flex: 1; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+/* ── 山札 ── */
+.deck-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.deck-stack { position: relative; width: 64px; height: 88px; cursor: grab; flex-shrink: 0; }
+.deck-stack-card {
+  position: absolute; width: 58px; height: 80px; border-radius: 6px;
+  background: #1a3a6e; border: 1.5px solid #2980b9;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: #2980b9; user-select: none;
+}
+.deck-stack-card:nth-child(1){ top:6px; left:4px; }
+.deck-stack-card:nth-child(2){ top:3px; left:2px; }
+.deck-stack-card:nth-child(3){ top:0; left:0; background:#1e4080; border-color:#3498db; cursor:grab; }
+.deck-stack.empty .deck-stack-card { opacity:0.2; cursor:not-allowed; }
+
+/* ── 捨札 ── */
+.discard-top-card {
+  width: 58px; height: 80px; border-radius: 6px; border: 1.5px solid #555;
+  background: #fff; color: #222; font-size: 12px; font-weight: bold;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: relative; flex-shrink: 0; cursor: grab;
+}
+.discard-top-card.red   { color: #c0392b; }
+.discard-top-card.joker { color: #6c3483; background: #f5eef8; border-color: #9b59b6; }
+.discard-top-card.empty { background: #0d1b2a; border: 1.5px dashed #2a4a6a; color: #2a4a6a; font-size: 10px; cursor: default; }
+.discard-drop {
+  min-height: 84px; border: 1px dashed #2a4a6a; border-radius: 5px;
+  padding: 4px; display: flex; align-items: flex-start; flex-wrap: wrap;
+  transition: border-color 0.12s, background 0.12s;
+}
+.discard-drop.drag-over-discard { border-color: #e74c3c; background: #2e1010; }
+
+/* エリアタイトル */
+.area-title { font-size: 10px; font-weight: bold; color: #7fb3d3; border-bottom: 1px solid #1a5276; padding-bottom: 2px; margin-bottom: 3px; }
+
+/* ── 通常カード ── */
+.card {
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  width: 50px; height: 70px; border-radius: 6px; border: 1.5px solid #555;
+  background: #fff; color: #222; font-size: 12px; font-weight: bold;
+  cursor: grab; user-select: none; margin: 2px; position: relative; flex-shrink: 0;
+  transition: transform 0.08s;
+}
+.card:hover { transform: translateY(-2px); }
+.card.red   { color: #c0392b; }
+.card.joker { color: #6c3483; background: #f5eef8; border-color: #9b59b6; }
+.card.face-down { background: #1a3a6e; color: #1a3a6e; border-color: #2980b9; }
+.card.selected { outline: 3px solid #f1c40f; outline-offset: 2px; }
+.card.first-card:not(.selected)  { outline: 3px solid #e74c3c; outline-offset: 2px; }
+.card.last-discard:not(.selected){ outline: 3px solid #e74c3c; outline-offset: 2px; }
+.card.dragging { opacity: 0.3; transform: scale(0.93); }
+.card-suit { font-size: 17px; line-height: 1; }
+.card-num  { font-size: 11px; margin-top: 1px; }
+.card-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#e74c3c; color:#fff; font-size:9px; border-radius:3px; padding:1px 3px; white-space:nowrap; pointer-events:none; }
+.card-popup { display:none; position:absolute; bottom:76px; left:50%; transform:translateX(-50%); background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:300; white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(0,0,0,0.7); }
+.card-popup.red   { color:#c0392b; }
+.card-popup.joker { color:#6c3483; }
+.card.face-down:hover .card-popup { display:block; }
+
+/* ── ドロップゾーン（場） ── */
+.drop-zone {
+  min-height: 78px; border: 1px dashed #2a4a6a; border-radius: 5px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; padding: 4px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.drop-zone.drag-over      { border-color: #f1c40f; background: #1e2e1e; }
+.drop-zone.drag-over-deck { border-color: #3498db; background: #0d1b2e; }
+
+/* ── 場ゾーン ── */
+.field-zone { background: #16213e; border-radius: 6px; padding: 7px; }
+.zone-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; flex-wrap:wrap; gap:3px; }
+.zone-btns { display:flex; gap:3px; flex-wrap:wrap; }
+.row-header { font-size:10px; font-weight:bold; padding:2px 6px; border-radius:3px; margin:4px 0 2px; display:inline-block; }
+.row-header.upper { background:#1a3a6e; color:#85c1e9; }
+.row-header.lower { background:#2a2a0a; color:#c8b400; }
+
+/* 比較エリア */
+#compareArea {
+  display: none; gap: 5px;
+  position: sticky; top: 20px; z-index: 9;
+  background: #0d1b2a; border: 1.5px solid #3498db;
+  border-radius: 6px; padding: 6px; margin-bottom: 6px;
+}
+#compareArea .field-zone { flex: 1; min-width: 0; }
+#compareArea-label {
+  font-size: 10px; color: #3498db; font-weight: bold;
+  margin-bottom: 4px; display: none;
+}
+</style>
+</head>
+<body>
+
+<!-- ══ 上部バー ══ -->
+<div id="topbar">
+  <div class="tb-section">
+    <div class="tb-row">
+      <span class="tb-title">デッキ</span>
+      <label><input type="checkbox" id="useJoker"> ジョーカー</label>
+      <button onclick="initDeck()">初期化＆シャッフル</button>
+      <span style="width:1px;background:#2a4a6a;align-self:stretch;margin:0 4px;"></span>
+      <span class="tb-title">手札上限</span>
+      <input type="number" id="handLimit" value="4" min="0" max="99" style="width:40px">
+      <span class="note">枚</span>
+      <span id="handCountLabel"></span>
+    </div>
+    <div class="tb-row">
+      <span class="tb-title">場</span>
+      <span class="note">PL：</span>
+      <select id="plCount" onchange="updateZoneNameInputs()">
+        <option value="1">1人</option><option value="2">2人</option>
+        <option value="3">3人</option><option value="4" selected>4人</option>
+        <option value="5">5人</option>
+      </select>
+      <button onclick="applyPlCount()">更新</button>
+      <div id="plNameConfig" style="display:flex;gap:3px;flex-wrap:wrap;"></div>
+    </div>
+  </div>
+
+  <div class="tb-section">
+    <div class="tb-title">手札操作</div>
+    <div class="tb-row">
+      <span class="note">選択した札を渡す：</span>
+      <select id="transferFrom"></select>
+      <span class="note">→</span>
+      <select id="transferTo"></select>
+      <button onclick="transferSelected()">渡す</button>
+    </div>
+  </div>
+
+  <div class="tb-section spacer"></div>
+
+  <div class="tb-section">
+    <div class="tb-title">山札補充</div>
+    <div class="tb-row">
+      <button class="green" onclick="manualReshuffle()">捨札→山札＆シャッフル</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ メインエリア ══ -->
+<div id="main">
+
+  <!-- 左カラム -->
+  <div id="left-col">
+
+    <!-- 山札・捨札 -->
+    <div id="left-top">
+      <!-- 山札 -->
+      <div class="deck-wrap">
+        <div class="area-title">山札　<span class="count-badge" id="deckCount">0</span>枚</div>
+        <div class="deck-stack" id="deckStack"
+          draggable="true" ondragstart="onDeckDragStart(event)" ondragend="onDragEnd(event)">
+          <div class="deck-stack-card">🂠</div>
+          <div class="deck-stack-card">🂠</div>
+          <div class="deck-stack-card">🂠</div>
+        </div>
+        <div class="note" style="text-align:center;margin-top:2px;">↓ドラッグで引く</div>
+      </div>
+      <!-- 捨札 -->
+      <div style="flex:1;display:flex;flex-direction:column;gap:3px;min-width:0;">
+        <div class="area-title">捨札　<span class="count-badge" id="discardCount">0</span>枚</div>
+        <div class="note">手札・場からドロップで捨てる</div>
+        <div class="note">最後の1枚はドラッグで戻せる</div>
+        <div class="discard-drop" id="discardDropZone"
+          ondragover="onDragOver(event,'discard')"
+          ondragleave="onDragLeave(event)"
+          ondrop="onDrop(event,'discard','')">
+          <div id="discardTopCard" class="discard-top-card empty">なし</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手札 -->
+    <div id="hand-section">
+      <div class="area-title" style="flex-shrink:0;">
+        手札　<span id="handCountBadge" class="count-badge">0</span>枚
+        <span id="limitStatus"></span>
+        <span class="note">　← 横スクロール可　ドラッグで並び替え・場へ移動</span>
+      </div>
+      <div id="handArea"
+        ondragover="onDragOver(event,'hand')"
+        ondragleave="onDragLeave(event)"
+        ondrop="onDrop(event,'hand','')">
+      </div>
+    </div>
+
+  </div><!-- /left-col -->
+
+  <!-- リサイザー -->
+  <div id="resizer"></div>
+
+  <!-- 右カラム -->
+  <div id="right-col">
+    <div class="area-title" style="position:sticky;top:0;z-index:10;background:#1a1a2e;padding:3px 0;">
+      場のカード　<span class="note">（赤枠＝上段1枚目）　（裏向き札にカーソルで内容確認）　（ドラッグで並び替え・移動）　<span style="color:#3498db;">★比較固定で2ゾーンを上部に表示</span></span>
+    </div>
+    <div id="compareArea"></div>
+    <div id="fieldZones"></div>
+    <div style="height:60vh;flex-shrink:0;"></div>
+  </div>
+
+</div><!-- /main -->
+
+<script>
+const SUITS=['♠','♥','♦','♣'],NUMS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'],RED=['♥','♦'];
+let deck=[],hand=[],discard=[],zones=[],fields={},hands={};
+let dragSrc=null;
+let compareZones=[]; // 比較固定中のゾーンID（最大2つ）
+
+function uid(){ return Math.random().toString(36).slice(2,8); }
+function makeCard(s,n){ return {suit:s,num:n,id:s+n+'_'+uid()}; }
+
+/* ── 初期化 ── */
+function initDeck(){
+  deck=[];
+  for(const s of SUITS) for(const n of NUMS) deck.push(makeCard(s,n));
+  if(document.getElementById('useJoker').checked) deck.push({suit:'JK',num:'JOKER',id:'JK_'+uid()});
+  shuffle(deck);
+  hand=[]; hands={};
+  zones.forEach(z=>{ fields[z.id]={upper:[],lower:[]}; });
+  discard=[];
+  render();
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
+
+/* ── ゾーン管理 ── */
+function buildZones(){
+  const n=parseInt(document.getElementById('plCount').value);
+  const nz=[{id:'gm',label:'GMの場'}];
+  for(let i=1;i<=n;i++){
+    const el=document.getElementById('plname_'+i);
+    nz.push({id:'pl'+i,label:(el&&el.value.trim()?el.value.trim():'PL'+i)+'の場'});
+  }
+  const nf={};
+  nz.forEach(z=>{ nf[z.id]=fields[z.id]||{upper:[],lower:[]}; });
+  compareZones=compareZones.filter(id=>nz.some(z=>z.id===id));
+  zones=nz; fields=nf;
+}
+function applyPlCount(){ buildZones(); refreshSelects(); render(); }
+function updateZoneNameInputs(){
+  const n=parseInt(document.getElementById('plCount').value);
+  let h='';
+  for(let i=1;i<=n;i++){
+    const el=document.getElementById('plname_'+i);
+    h+=`<div class="pl-name-row"><label>PL${i}</label><input type="text" id="plname_${i}" placeholder="PL${i}" value="${el?el.value:''}"></div>`;
+  }
+  document.getElementById('plNameConfig').innerHTML=h;
+}
+function refreshSelects(){
+  const n=parseInt(document.getElementById('plCount').value);
+  const opts=[{id:'hand',label:'自分の手札'}];
+  for(let i=1;i<=n;i++){
+    const el=document.getElementById('plname_'+i);
+    opts.push({id:'pl_hand_'+i,label:(el&&el.value.trim()?el.value.trim():'PL'+i)+'の手札'});
+  }
+  const oh=opts.map(o=>`<option value="${o.id}">${o.label}</option>`).join('');
+  const fs=document.getElementById('transferFrom'),ts=document.getElementById('transferTo');
+  const fc=fs.value,tc=ts.value;
+  fs.innerHTML=oh; ts.innerHTML=oh;
+  if(opts.find(o=>o.id===fc)) fs.value=fc;
+  if(opts.find(o=>o.id===tc)) ts.value=tc;
+}
+function getHand(id){ if(id==='hand') return hand; if(!hands[id]) hands[id]=[]; return hands[id]; }
+function lim(){ return parseInt(document.getElementById('handLimit').value)||0; }
+
+/* ── 比較固定トグル ── */
+function toggleCompare(zid){
+  const i=compareZones.indexOf(zid);
+  if(i>=0){ compareZones.splice(i,1); }
+  else if(compareZones.length<2){ compareZones.push(zid); }
+  else { compareZones=[compareZones[1],zid]; }
+  renderOnly();
+}
+
+/* ── 自動シャッフル ── */
+let _reshuffleDialogOpen=false;
+function autoReshuffleCheck(){
+  if(_reshuffleDialogOpen) return;
+  if(deck.length===0&&discard.length>0){
+    _reshuffleDialogOpen=true;
+    const ok=confirm(`山札が0枚になりました。捨札（${discard.length}枚）を山札に戻してシャッフルしますか？`);
+    _reshuffleDialogOpen=false;
+    if(ok){ discard.forEach(c=>{c.selected=false;deck.push(c);}); discard=[]; shuffle(deck); renderOnly(); }
+  }
+}
+function manualReshuffle(){
+  if(!discard.length){ alert('捨札がありません'); return; }
+  if(confirm(`捨札（${discard.length}枚）を山札に戻してシャッフルしますか？`)){
+    discard.forEach(c=>{c.selected=false;deck.push(c);}); discard=[]; shuffle(deck); renderOnly();
+  }
+}
+
+/* ── 操作 ── */
+function transferSelected(){
+  const fid=document.getElementById('transferFrom').value,tid=document.getElementById('transferTo').value;
+  if(fid===tid){ alert('渡し元と渡し先が同じです'); return; }
+  const fa=getHand(fid),sel=fa.filter(c=>c.selected);
+  if(!sel.length){ alert('渡し元の手札でカードを選択してください'); return; }
+  const ta=getHand(tid),L=lim();
+  if(ta.length+sel.length>L){
+    const tn=document.getElementById('transferTo').options[document.getElementById('transferTo').selectedIndex].text;
+    if(!confirm(`${tn}の手札が上限（${L}枚）を超えます。渡しますか？`)) return;
+  }
+  sel.forEach(c=>{ const i=fa.findIndex(x=>x.id===c.id); if(i>=0) fa.splice(i,1); c.selected=false; ta.push(c); }); render();
+}
+function clearZone(zid){ ['upper','lower'].forEach(r=>{ fields[zid][r].forEach(c=>{c.faceDown=false;discard.push(c);}); fields[zid][r]=[]; }); render(); }
+function revealZone(zid){ ['upper','lower'].forEach(r=>fields[zid][r].forEach(c=>c.faceDown=false)); render(); }
+function revealFirstFaceDown(zid){ for(const r of ['upper','lower']){ const c=fields[zid][r].find(c=>c.faceDown); if(c){c.faceDown=false;break;} } render(); }
+function toggleFieldCard(zid,row,idx){ fields[zid][row][idx].faceDown=!fields[zid][row][idx].faceDown; render(); }
+function toggleSelectCard(i){ hand[i].selected=!hand[i].selected; render(); }
+
+/* ── ドラッグ＆ドロップ ── */
+function onDeckDragStart(e){
+  if(!deck.length){ e.preventDefault(); return; }
+  dragSrc={from:'deck'}; e.dataTransfer.effectAllowed='move';
+}
+function onDragStart(e,from,zid,row,idx){
+  dragSrc={from,zid,row,idx};
+  setTimeout(()=>e.target.classList.add('dragging'),0);
+  e.dataTransfer.effectAllowed='move';
+}
+function onDragEnd(e){
+  e.target.classList.remove('dragging');
+  document.querySelectorAll('.drag-over,.drag-over-deck,.drag-over-discard').forEach(el=>{
+    el.classList.remove('drag-over','drag-over-deck','drag-over-discard');
+  });
+}
+function onDragOver(e,to){
+  e.preventDefault();
+  let cls='drag-over';
+  if(dragSrc&&dragSrc.from==='deck') cls='drag-over-deck';
+  else if(to==='discard') cls='drag-over-discard';
+  e.currentTarget.classList.add(cls);
+}
+function onDragLeave(e){ e.currentTarget.classList.remove('drag-over','drag-over-deck','drag-over-discard'); }
+
+function onDrop(e,to,toKey){
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over','drag-over-deck','drag-over-discard');
+  if(!dragSrc) return;
+  const src=dragSrc; dragSrc=null;
+
+  if(src.from==='discard'){
+    if(!discard.length) return;
+    const card=discard[discard.length-1];
+    if(to==='hand'){
+      const L=lim();
+      if(hand.length>=L){ if(!confirm(`手札が上限（${L}枚）に達しています。移動しますか？`)) return; }
+      discard.pop(); card.selected=false; card.faceDown=false; hand.push(card);
+    } else if(to==='field'){
+      const [zid,row]=toKey.split('|');
+      discard.pop(); card.selected=false; card.faceDown=false; fields[zid][row].push(card);
+    }
+    render(); return;
+  }
+
+  if(src.from==='deck'){
+    if(!deck.length){ alert('山札が空です'); return; }
+    if(to==='hand'){
+      const L=lim();
+      if(hand.length>=L){ if(!confirm(`手札が上限（${L}枚）に達しています。ドローしますか？`)) return; }
+      const c=deck.pop(); c.faceDown=false; hand.push(c);
+    } else if(to==='field'){
+      const [zid,row]=toKey.split('|');
+      const c=deck.pop(); c.faceDown=false; fields[zid][row].push(c);
+    }
+    render(); return;
+  }
+
+  let card=null;
+  if(src.from==='hand'){ card=hand.splice(src.idx,1)[0]; }
+  else if(src.from==='field'){ card=fields[src.zid][src.row].splice(src.idx,1)[0]; }
+  if(!card){ render(); return; }
+
+  if(to==='hand'){
+    const L=lim();
+    if(hand.length>=L){
+      if(!confirm(`手札が上限（${L}枚）に達しています。移動しますか？`)){
+        if(src.from==='hand') hand.splice(src.idx,0,card);
+        else fields[src.zid][src.row].splice(src.idx,0,card);
+        render(); return;
+      }
+    }
+    const tgt=e.target.closest('[data-idx]');
+    if(tgt&&src.from==='hand'){ hand.splice(parseInt(tgt.dataset.idx),0,card); }
+    else { card.selected=false; card.faceDown=false; hand.push(card); }
+  } else if(to==='field'){
+    const [zid,row]=toKey.split('|');
+    card.selected=false; card.faceDown=true;
+    const tgt=e.target.closest('[data-idx]');
+    if(tgt){ fields[zid][row].splice(parseInt(tgt.dataset.idx),0,card); }
+    else { fields[zid][row].push(card); }
+  } else if(to==='discard'){
+    card.selected=false; card.faceDown=false; discard.push(card);
+  }
+  render();
+}
+
+/* ── カードHTML ── */
+function cardEl(card,clickFn,isFirst,isLast,from,zid,row,idx){
+  const isRed=RED.includes(card.suit),isJoker=card.suit==='JK';
+  let cls='card';
+  if(card.faceDown) cls+=' face-down';
+  else if(isJoker)  cls+=' joker';
+  else if(isRed)    cls+=' red';
+  if(card.selected)      cls+=' selected';
+  else if(isFirst)       cls+=' first-card';
+  else if(isLast)        cls+=' last-discard';
+  const inner=card.faceDown
+    ?`<span class="card-suit">🂠</span><div class="card-popup${isRed?' red':isJoker?' joker':''}">${isJoker?'🃏 JOKER':card.suit+card.num}</div>`
+    :`<span class="card-suit">${isJoker?'🃏':card.suit}</span><span class="card-num">${isJoker?'':card.num}</span>`;
+  const badge=(isFirst&&!card.selected)?'<span class="card-badge">1枚目</span>':
+              (isLast&&!card.selected)?'<span class="card-badge">最後</span>':'';
+  const ds=from?`draggable="true" ondragstart="onDragStart(event,'${from}','${zid||''}','${row||''}',${idx})" ondragend="onDragEnd(event)"`:'';
+  return `<div class="${cls}" data-idx="${idx}" ${ds} onclick="${clickFn}">${badge}${inner}</div>`;
+}
+
+/* ── 捨札トップ更新 ── */
+function renderDiscardTop(){
+  const el=document.getElementById('discardTopCard');
+  if(!discard.length){
+    el.className='discard-top-card empty'; el.removeAttribute('draggable');
+    el.ondragstart=null; el.ondragend=null; el.innerHTML='なし'; return;
+  }
+  const c=discard[discard.length-1];
+  const isRed=RED.includes(c.suit),isJoker=c.suit==='JK';
+  el.className='discard-top-card'+(isRed?' red':isJoker?' joker':'');
+  el.setAttribute('draggable','true'); el.style.cursor='grab';
+  el.ondragstart=(e)=>{ dragSrc={from:'discard'}; setTimeout(()=>el.classList.add('dragging'),0); e.dataTransfer.effectAllowed='move'; };
+  el.ondragend=(e)=>{ el.classList.remove('dragging'); document.querySelectorAll('.drag-over,.drag-over-deck,.drag-over-discard').forEach(x=>x.classList.remove('drag-over','drag-over-deck','drag-over-discard')); };
+  el.innerHTML=`<span class="card-badge">最後</span><span style="font-size:18px;line-height:1;">${isJoker?'🃏':c.suit}</span><span style="font-size:11px;margin-top:2px;">${isJoker?'JOKER':c.num}</span>`;
+}
+
+/* ── レンダリング ── */
+function render(){ renderOnly(); autoReshuffleCheck(); }
+function renderOnly(){
+  const L=lim();
+  document.getElementById('deckCount').textContent=deck.length;
+  document.getElementById('discardCount').textContent=discard.length;
+  document.getElementById('deckStack').className='deck-stack'+(deck.length===0?' empty':'');
+  const over=hand.length>L;
+  document.getElementById('handCountBadge').textContent=hand.length;
+  document.getElementById('handCountLabel').innerHTML=`現在 <span class="count-badge">${hand.length}</span>枚`+(over?'　<span class="warn-text">⚠上限超過</span>':'');
+  document.getElementById('limitStatus').innerHTML=over?'<span class="warn-text">⚠上限超過</span>':'';
+
+  // 手札（横スクロール・nowrap）
+  document.getElementById('handArea').innerHTML=
+    hand.map((c,i)=>cardEl(c,`toggleSelectCard(${i})`,false,false,'hand','','',i)).join('');
+
+  // 場
+  const fz=document.getElementById('fieldZones');
+  const ca=document.getElementById('compareArea');
+
+  function buildZoneHtml(z, isPinned){
+    const up=fields[z.id].upper||[],lo=fields[z.id].lower||[];
+    const tot=up.length+lo.length,fd=up.filter(c=>c.faceDown).length+lo.filter(c=>c.faceDown).length;
+    const upHtml=up.map((c,i)=>cardEl(c,`toggleFieldCard('${z.id}','upper',${i})`,i===0,false,'field',z.id,'upper',i)).join('');
+    const loHtml=lo.map((c,i)=>cardEl(c,`toggleFieldCard('${z.id}','lower',${i})`,false,false,'field',z.id,'lower',i)).join('');
+    const pinBtn=isPinned
+      ?`<button class="small active" onclick="toggleCompare('${z.id}')">★ 比較解除</button>`
+      :`<button class="small" onclick="toggleCompare('${z.id}')">★ 比較固定</button>`;
+    return `<div class="field-zone">
+      <div class="zone-header">
+        <h3 style="font-size:11px;color:#85c1e9;">${z.label}（計${tot}枚/裏${fd}枚）</h3>
+        <div class="zone-btns">
+          ${pinBtn}
+          <button class="small" onclick="revealFirstFaceDown('${z.id}')">裏を1枚表に</button>
+          <button class="small" onclick="revealZone('${z.id}')">全部表に</button>
+          <button class="small" onclick="clearZone('${z.id}')">全て捨札へ捨てる</button>
+        </div>
+      </div>
+      <div class="row-header upper">上段：判定・特技コスト用　赤枠＝1枚目</div>
+      <div class="drop-zone" ondragover="onDragOver(event,'field')" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'field','${z.id}|upper')">${upHtml}</div>
+      <div class="row-header lower">下段：その他の札</div>
+      <div class="drop-zone" ondragover="onDragOver(event,'field')" ondragleave="onDragLeave(event)" ondrop="onDrop(event,'field','${z.id}|lower')">${loHtml}</div>
+    </div>`;
+  }
+
+  // 比較エリア（固定されたゾーンを横並びで表示）
+  if(compareZones.length>0){
+    ca.style.display='flex';
+    ca.innerHTML=compareZones
+      .map(id=>zones.find(z=>z.id===id)).filter(Boolean)
+      .map(z=>buildZoneHtml(z,true)).join('');
+  } else {
+    ca.style.display='none';
+    ca.innerHTML='';
+  }
+
+  // 通常エリア（比較固定されていないゾーンのみ表示）
+  fz.innerHTML=zones
+    .filter(z=>!compareZones.includes(z.id))
+    .map(z=>buildZoneHtml(z,false)).join('');
+
+  renderDiscardTop();
+}
+
+/* ── リサイザー ── */
+(function(){
+  const resizer=document.getElementById('resizer');
+  const leftCol=document.getElementById('left-col');
+  let dragging=false,startX=0,startW=0;
+  resizer.addEventListener('mousedown',e=>{
+    dragging=true; startX=e.clientX; startW=leftCol.offsetWidth;
+    document.body.style.cursor='col-resize'; document.body.style.userSelect='none';
+  });
+  document.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    const w=Math.max(120,Math.min(window.innerWidth*0.6,startW+(e.clientX-startX)));
+    leftCol.style.width=w+'px';
+  });
+  document.addEventListener('mouseup',()=>{
+    dragging=false; document.body.style.cursor=''; document.body.style.userSelect='';
+  });
+})();
+
+window.onload=()=>{ updateZoneNameInputs(); buildZones(); refreshSelects(); hands={}; initDeck(); };
+</script>
+</body>
+</html>
