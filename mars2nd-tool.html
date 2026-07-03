@@ -161,9 +161,121 @@ input[type=text] { width: 72px; }
   font-size: 10px; color: #3498db; font-weight: bold;
   margin-bottom: 4px; display: none;
 }
+
+/* ══ 認証画面 ══ */
+#authScreen {
+  position: fixed; inset: 0; background: #0d1b2a;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; flex-direction: column; gap: 16px;
+}
+#authScreen.hidden { display: none; }
+.auth-box {
+  background: #16213e; border: 1px solid #1a5276;
+  border-radius: 10px; padding: 28px 32px;
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 320px;
+}
+.auth-title { font-size: 18px; color: #aad4f5; font-weight: bold; text-align: center; }
+.auth-subtitle { font-size: 12px; color: #7fb3d3; text-align: center; }
+.auth-mode-row { display: flex; gap: 8px; justify-content: center; }
+.auth-mode-btn {
+  flex: 1; padding: 8px; border-radius: 6px; cursor: pointer;
+  border: 1.5px solid #1a5276; background: #0f3460; color: #eee;
+  font-size: 13px; text-align: center;
+}
+.auth-mode-btn.selected { border-color: #3498db; background: #1a3a6e; color: #aad4f5; font-weight: bold; }
+.auth-input-wrap { display: flex; flex-direction: column; gap: 6px; }
+.auth-label { font-size: 11px; color: #7fb3d3; }
+.auth-input {
+  background: #0a1628 !important; color: #eee !important;
+  border: 1px solid #1a5276 !important; border-radius: 5px !important;
+  padding: 12px 14px !important; font-size: 20px !important;
+  width: 100% !important; text-align: center !important;
+  letter-spacing: 4px !important; font-family: monospace !important;
+}
+.auth-input:focus { outline: none; border-color: #3498db; }
+.auth-btn {
+  background: #1a4a2e; border: 1px solid #27ae60; border-radius: 6px;
+  color: #eee; padding: 10px; font-size: 14px; cursor: pointer; width: 100%;
+}
+.auth-btn:hover { background: #27ae60; }
+.auth-error { color: #e74c3c; font-size: 12px; text-align: center; min-height: 16px; }
+.auth-session-box {
+  background: #0a1628; border: 1px solid #27ae60; border-radius: 6px;
+  padding: 12px; display: none; flex-direction: column; gap: 8px;
+}
+.auth-session-id {
+  font-size: 20px; font-weight: bold; color: #27ae60;
+  text-align: center; letter-spacing: 3px; font-family: monospace;
+}
+.auth-session-hint { font-size: 11px; color: #7fb3d3; text-align: center; }
+.auth-copy-btn {
+  background: #0f3460; border: 1px solid #1a5276; border-radius: 4px;
+  color: #eee; padding: 5px; font-size: 12px; cursor: pointer;
+}
+.auth-copy-btn:hover { background: #1a5276; }
+/* セッション情報バッジ（ツール上部） */
+#sessionBadge {
+  position: fixed; bottom: 8px; right: 8px;
+  background: #0d1b2a; border: 1px solid #1a5276;
+  border-radius: 5px; padding: 4px 10px;
+  font-size: 10px; color: #7fb3d3; z-index: 500;
+  display: none;
+}
+#sessionBadge.visible { display: block; }
 </style>
 </head>
 <body>
+<!-- ══ 認証画面 ══ -->
+<div id="authScreen">
+  <div class="auth-box">
+    <div class="auth-title">マルス2nd 補助ツール</div>
+    <div class="auth-subtitle">モードを選択してください</div>
+
+    <div class="auth-mode-row">
+      <div class="auth-mode-btn selected" id="modeGM" onclick="selectMode('gm')">GMモード</div>
+      <div class="auth-mode-btn" id="modePL" onclick="selectMode('pl')">プレイヤーモード</div>
+    </div>
+
+    <!-- GMモード -->
+    <div id="gmPanel">
+      <div class="auth-input-wrap">
+        <div class="auth-label">GMキー</div>
+        <input class="auth-input" type="password" id="gmKeyInput" placeholder="GMキーを入力" onkeydown="if(event.key==='Enter')verifyGM()">
+      </div>
+      <div style="height:8px;"></div>
+      <button class="auth-btn" onclick="verifyGM()">GMとして入室</button>
+      <div class="auth-error" id="gmError"></div>
+
+      <!-- セッションID発行エリア（認証後に表示） -->
+      <div class="auth-session-box" id="sessionBox">
+        <div class="auth-label">セッションID（プレイヤーに共有）</div>
+        <div class="auth-session-id" id="sessionIdDisplay"></div>
+        <div class="auth-session-hint">このIDをプレイヤーに伝えてください</div>
+        <div style="display:flex;gap:6px;">
+          <button class="auth-copy-btn" style="flex:1;" onclick="copySessionId()">📋 コピー</button>
+          <button class="auth-copy-btn" style="flex:1;" onclick="generateSessionId()">🔄 再生成</button>
+        </div>
+        <button class="auth-btn" style="margin-top:4px;" onclick="startAsGM()">このIDでセッション開始</button>
+      </div>
+    </div>
+
+    <!-- プレイヤーモード -->
+    <div id="plPanel" style="display:none;">
+      <div class="auth-input-wrap">
+        <div class="auth-label">セッションID（GMから受け取ったID）</div>
+        <input class="auth-input" type="text" id="plSessionInput" placeholder="セッションIDを入力" onkeydown="if(event.key==='Enter')verifyPlayer()">
+      </div>
+      <div style="height:8px;"></div>
+      <button class="auth-btn" onclick="verifyPlayer()">参加する</button>
+      <div class="auth-error" id="plError"></div>
+    </div>
+  </div>
+</div>
+
+<!-- セッション情報バッジ -->
+<div id="sessionBadge"></div>
+
 
 <!-- ══ 上部バー ══ -->
 <div id="topbar">
@@ -589,7 +701,103 @@ function renderOnly(){
   });
 })();
 
-window.onload=()=>{ updateZoneNameInputs(); buildZones(); refreshSelects(); hands={}; initDeck(); };
+
+/* ══ 認証システム ══ */
+
+// GMキーのハッシュ（SHA-256）
+// デフォルトキー「mars2nd-gm」のハッシュ値
+// 変更する場合はこの値を差し替える
+const GM_KEY_HASH = '1c2c9e5da65e332e48cc1907954fdccb41e53d23488494c623b5a381acb4d17b';
+
+let currentSessionId = null;
+let isGM = false;
+
+// GMキーをSHA-256でハッシュ化して照合
+async function hashText(text){
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function selectMode(mode){
+  if(mode==='gm'){
+    document.getElementById('modeGM').classList.add('selected');
+    document.getElementById('modePL').classList.remove('selected');
+    document.getElementById('gmPanel').style.display='';
+    document.getElementById('plPanel').style.display='none';
+  } else {
+    document.getElementById('modePL').classList.add('selected');
+    document.getElementById('modeGM').classList.remove('selected');
+    document.getElementById('plPanel').style.display='';
+    document.getElementById('gmPanel').style.display='none';
+  }
+}
+
+async function verifyGM(){
+  const key = document.getElementById('gmKeyInput').value;
+  if(!key){ document.getElementById('gmError').textContent='GMキーを入力してください'; return; }
+  const hash = await hashText(key);
+  if(hash !== GM_KEY_HASH){
+    document.getElementById('gmError').textContent='GMキーが正しくありません';
+    return;
+  }
+  document.getElementById('gmError').textContent='';
+  // 認証成功：セッションID発行エリアを表示
+  document.getElementById('sessionBox').style.display='flex';
+  generateSessionId();
+}
+
+function generateSessionId(){
+  // 8文字の英数字IDを生成
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let id='';
+  for(let i=0;i<8;i++) id+=chars[Math.floor(Math.random()*chars.length)];
+  currentSessionId=id;
+  document.getElementById('sessionIdDisplay').textContent=id;
+  // localStorageに保存（同じブラウザで照合するため）
+  localStorage.setItem('mars2nd_session_id', id);
+}
+
+function copySessionId(){
+  navigator.clipboard.writeText(currentSessionId)
+    .then(()=>alert('セッションIDをコピーしました: ' + currentSessionId))
+    .catch(()=>alert('セッションID: ' + currentSessionId));
+}
+
+function startAsGM(){
+  if(!currentSessionId){ alert('セッションIDを生成してください'); return; }
+  isGM=true;
+  enterTool('GM', currentSessionId);
+}
+
+function verifyPlayer(){
+  const input = document.getElementById('plSessionInput').value.trim().toUpperCase();
+  if(!input){ document.getElementById('plError').textContent='セッションIDを入力してください'; return; }
+  const storedId = localStorage.getItem('mars2nd_session_id');
+  if(!storedId){
+    document.getElementById('plError').textContent='有効なセッションが見つかりません。GMにIDを確認してください';
+    return;
+  }
+  if(input !== storedId){
+    document.getElementById('plError').textContent='セッションIDが正しくありません';
+    return;
+  }
+  isGM=false;
+  enterTool('PL', input);
+}
+
+function enterTool(role, sessionId){
+  document.getElementById('authScreen').classList.add('hidden');
+  const badge=document.getElementById('sessionBadge');
+  badge.textContent=`${role}モード　セッション: ${sessionId}`;
+  badge.classList.add('visible');
+  // ツール初期化
+  updateZoneNameInputs(); buildZones(); refreshSelects(); hands={}; initDeck();
+}
+
+window.onload=()=>{ /* 認証画面が先に表示される。enterTool()でツール初期化 */ };
 </script>
 </body>
 </html>
