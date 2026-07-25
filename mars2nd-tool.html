@@ -177,13 +177,7 @@ input[type=text] { width: 72px; }
 }
 .auth-title { font-size: 18px; color: #aad4f5; font-weight: bold; text-align: center; }
 .auth-subtitle { font-size: 12px; color: #7fb3d3; text-align: center; }
-.auth-mode-row { display: flex; gap: 8px; justify-content: center; }
-.auth-mode-btn {
-  flex: 1; padding: 8px; border-radius: 6px; cursor: pointer;
-  border: 1.5px solid #1a5276; background: #0f3460; color: #eee;
-  font-size: 13px; text-align: center;
-}
-.auth-mode-btn.selected { border-color: #3498db; background: #1a3a6e; color: #aad4f5; font-weight: bold; }
+
 .auth-input-wrap { display: flex; flex-direction: column; gap: 6px; }
 .auth-label { font-size: 11px; color: #7fb3d3; }
 .auth-input {
@@ -230,12 +224,7 @@ input[type=text] { width: 72px; }
 <div id="authScreen">
   <div class="auth-box">
     <div class="auth-title">マルス2nd 補助ツール</div>
-    <div class="auth-subtitle">モードを選択してください</div>
-
-    <div class="auth-mode-row">
-      <div class="auth-mode-btn selected" id="modeGM" onclick="selectMode('gm')">GMモード</div>
-      <div class="auth-mode-btn" id="modePL" onclick="selectMode('pl')">プレイヤーモード</div>
-    </div>
+    <div class="auth-subtitle">GMキーを入力してください</div>
 
     <!-- GMモード -->
     <div id="gmPanel">
@@ -249,27 +238,19 @@ input[type=text] { width: 72px; }
 
       <!-- セッションID発行エリア（認証後に表示） -->
       <div class="auth-session-box" id="sessionBox">
-        <div class="auth-label">セッションID（プレイヤーに共有）</div>
+        <div class="auth-label">セッションID</div>
         <div class="auth-session-id" id="sessionIdDisplay"></div>
-        <div class="auth-session-hint">このIDをプレイヤーに伝えてください</div>
-        <div style="display:flex;gap:6px;">
-          <button class="auth-copy-btn" style="flex:1;" onclick="copySessionId()">📋 コピー</button>
+        <div class="auth-label" style="margin-top:6px;">プレイヤー用URL（このURLを共有）</div>
+        <div id="sessionUrlDisplay" style="font-size:10px;color:#7fb3d3;word-break:break-all;background:#0a1628;border-radius:4px;padding:6px;"></div>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button class="auth-copy-btn" style="flex:1;" onclick="copySessionUrl()">🔗 URLをコピー</button>
+          <button class="auth-copy-btn" style="flex:1;" onclick="copySessionId()">📋 IDをコピー</button>
           <button class="auth-copy-btn" style="flex:1;" onclick="generateSessionId()">🔄 再生成</button>
         </div>
-        <button class="auth-btn" style="margin-top:4px;" onclick="startAsGM()">このIDでセッション開始</button>
+        <button class="auth-btn" style="margin-top:6px;" onclick="startAsGM()">このIDでセッション開始</button>
       </div>
     </div>
 
-    <!-- プレイヤーモード -->
-    <div id="plPanel" style="display:none;">
-      <div class="auth-input-wrap">
-        <div class="auth-label">セッションID（GMから受け取ったID）</div>
-        <input class="auth-input" type="text" id="plSessionInput" placeholder="セッションIDを入力" onkeydown="if(event.key==='Enter')verifyPlayer()">
-      </div>
-      <div style="height:8px;"></div>
-      <button class="auth-btn" onclick="verifyPlayer()">参加する</button>
-      <div class="auth-error" id="plError"></div>
-    </div>
   </div>
 </div>
 
@@ -704,15 +685,11 @@ function renderOnly(){
 
 /* ══ 認証システム ══ */
 
-// GMキーのハッシュ（SHA-256）
-// デフォルトキー「mars2nd-gm」のハッシュ値
-// 変更する場合はこの値を差し替える
 const GM_KEY_HASH = '1c2c9e5da65e332e48cc1907954fdccb41e53d23488494c623b5a381acb4d17b';
 
 let currentSessionId = null;
 let isGM = false;
 
-// GMキーをSHA-256でハッシュ化して照合
 async function hashText(text){
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
@@ -721,19 +698,7 @@ async function hashText(text){
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function selectMode(mode){
-  if(mode==='gm'){
-    document.getElementById('modeGM').classList.add('selected');
-    document.getElementById('modePL').classList.remove('selected');
-    document.getElementById('gmPanel').style.display='';
-    document.getElementById('plPanel').style.display='none';
-  } else {
-    document.getElementById('modePL').classList.add('selected');
-    document.getElementById('modeGM').classList.remove('selected');
-    document.getElementById('plPanel').style.display='';
-    document.getElementById('gmPanel').style.display='none';
-  }
-}
+
 
 async function verifyGM(){
   const key = document.getElementById('gmKeyInput').value;
@@ -744,60 +709,84 @@ async function verifyGM(){
     return;
   }
   document.getElementById('gmError').textContent='';
-  // 認証成功：セッションID発行エリアを表示
   document.getElementById('sessionBox').style.display='flex';
   generateSessionId();
 }
 
 function generateSessionId(){
-  // 8文字の英数字IDを生成
   const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let id='';
   for(let i=0;i<8;i++) id+=chars[Math.floor(Math.random()*chars.length)];
   currentSessionId=id;
   document.getElementById('sessionIdDisplay').textContent=id;
-  // localStorageに保存（同じブラウザで照合するため）
-  localStorage.setItem('mars2nd_session_id', id);
+  updateSessionUrl(id);
+}
+
+function updateSessionUrl(id){
+  // セッションURLを生成して表示
+  const base=window.location.href.split('?')[0];
+  const url=`${base}?session=${id}`;
+  document.getElementById('sessionUrlDisplay').textContent=url;
+  document.getElementById('sessionUrlDisplay').dataset.url=url;
+}
+
+function copySessionUrl(){
+  const url=document.getElementById('sessionUrlDisplay').dataset.url;
+  navigator.clipboard.writeText(url)
+    .then(()=>alert('セッションURLをコピーしました'))
+    .catch(()=>alert('URL: '+url));
 }
 
 function copySessionId(){
   navigator.clipboard.writeText(currentSessionId)
-    .then(()=>alert('セッションIDをコピーしました: ' + currentSessionId))
-    .catch(()=>alert('セッションID: ' + currentSessionId));
+    .then(()=>alert('セッションIDをコピーしました: '+currentSessionId))
+    .catch(()=>alert('セッションID: '+currentSessionId));
 }
 
 function startAsGM(){
   if(!currentSessionId){ alert('セッションIDを生成してください'); return; }
   isGM=true;
+  // URLにセッションIDを反映
+  const base=window.location.href.split('?')[0];
+  history.replaceState(null,'',`${base}?session=${currentSessionId}`);
   enterTool('GM', currentSessionId);
 }
 
-function verifyPlayer(){
-  const input = document.getElementById('plSessionInput').value.trim().toUpperCase();
-  if(!input){ document.getElementById('plError').textContent='セッションIDを入力してください'; return; }
-  const storedId = localStorage.getItem('mars2nd_session_id');
-  if(!storedId){
-    document.getElementById('plError').textContent='有効なセッションが見つかりません。GMにIDを確認してください';
-    return;
-  }
-  if(input !== storedId){
-    document.getElementById('plError').textContent='セッションIDが正しくありません';
-    return;
-  }
-  isGM=false;
-  enterTool('PL', input);
+
+
+function getUrlSessionId(){
+  const params=new URLSearchParams(window.location.search);
+  return (params.get('session')||'').toUpperCase();
 }
 
 function enterTool(role, sessionId){
   document.getElementById('authScreen').classList.add('hidden');
   const badge=document.getElementById('sessionBadge');
-  badge.textContent=`${role}モード　セッション: ${sessionId}`;
+  badge.innerHTML=`${role}モード　セッション: <b>${sessionId}</b>`
+    +(role==='GM'?'　<button onclick="endSession()" style="margin-left:8px;background:#5c1010;border:1px solid #e74c3c;border-radius:3px;color:#eee;padding:2px 8px;cursor:pointer;font-size:10px;">セッション終了</button>':'');
   badge.classList.add('visible');
-  // ツール初期化
   updateZoneNameInputs(); buildZones(); refreshSelects(); hands={}; initDeck();
 }
 
-window.onload=()=>{ /* 認証画面が先に表示される。enterTool()でツール初期化 */ };
+function endSession(){
+  if(!confirm('セッションを終了しますか？\nURLが無効になり、プレイヤーは参加できなくなります。')) return;
+  // URLからセッションIDを削除
+  history.replaceState(null,'',window.location.href.split('?')[0]);
+  alert('セッションを終了しました。');
+  location.reload();
+}
+
+// ページ読み込み時：URLにセッションIDがあれば自動でPL入室
+function initAuth(){
+  const urlId=getUrlSessionId();
+  if(urlId){
+    // URLにIDがある→認証画面を表示せずそのままPL入室
+    isGM=false;
+    enterTool('PL', urlId);
+  }
+}
+
+window.onload=()=>{ initAuth(); };
 </script>
 </body>
 </html>
