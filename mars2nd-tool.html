@@ -191,10 +191,10 @@ input[type=text] { width: 72px; }
 #sessionBadge.visible{display:block;}
 </style>
 </head>
-<body>
+<body style="background-color:#1a1a2e;color:#eee;">
 <!-- 認証画面 -->
-<div id="authScreen">
-  <div class="auth-box">
+<div id="authScreen" style="position:fixed;inset:0;background-color:#0d1b2a;display:flex;align-items:center;justify-content:center;z-index:1000;">
+  <div class="auth-box" style="background-color:#16213e;border:1px solid #1a5276;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;">
     <div class="auth-title">マルス2nd 補助ツール</div>
     <div class="auth-sub" id="gmSubTitle">GMキーを入力してください</div>
     <input id="gmKeyInput" type="password" placeholder="GMキーを入力" onkeydown="if(event.key==='Enter')verifyGM()">
@@ -709,18 +709,18 @@ async function initAuth(){
   const urlId=getUrlSessionId();
   if(!urlId) return; // URLにIDなし→GM画面を表示
   // URLにIDあり→GMキー画面を隠して「確認中」表示
-  document.getElementById('authScreen').innerHTML='<div class="auth-box"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub">セッションを確認中...</div></div>';
+  document.getElementById('authScreen').innerHTML='<div class="auth-box" style="background-color:#16213e;border:1px solid #1a5276;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub">セッションを確認中...</div></div>';
   try{
     const res=await fetch(GAS_URL+'?action=get');
     const gasId=(await res.text()).trim().toUpperCase();
     if(!gasId){
-      document.getElementById('authScreen').innerHTML='<div class="auth-box"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub" style="color:#e74c3c;">このセッションは終了しました。</div></div>';
+      document.getElementById('authScreen').innerHTML='<div class="auth-box" style="background-color:#16213e;border:1px solid #1a5276;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub" style="color:#e74c3c;">このセッションは終了しました。</div></div>';
       return;
     }
     if(urlId===gasId){
       enterTool('PL',urlId);
     } else {
-      document.getElementById('authScreen').innerHTML='<div class="auth-box"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub" style="color:#e74c3c;">セッションIDが無効です。GMに確認してください。</div></div>';
+      document.getElementById('authScreen').innerHTML='<div class="auth-box" style="background-color:#16213e;border:1px solid #1a5276;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub" style="color:#e74c3c;">セッションIDが無効です。GMに確認してください。</div></div>';
     }
   }catch(e){
     // GAS接続失敗時はURLのIDでそのまま入室（フォールバック）
