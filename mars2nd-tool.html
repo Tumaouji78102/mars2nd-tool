@@ -691,7 +691,9 @@ async function endSession(){
   location.reload();
 }
 function enterTool(role,sid){
-  document.getElementById('authScreen').classList.add('hidden');
+  const as=document.getElementById('authScreen');
+  as.classList.add('hidden');
+  as.style.display='none';
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
   if(role==='GM'){
