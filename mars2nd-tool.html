@@ -9,7 +9,17 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { color-scheme: only dark; }
-/* Google翻訳の干渉を防ぐ */
+/* Google翻訳・GoDark等の拡張機能の干渉を防ぐ */
+.auth-box, .auth-box * {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
+  border-color: inherit !important;
+}
+.auth-box { background-color: #16213e !important; }
+.auth-btn-green { background-color: #1a4a2e !important; border-color: #27ae60 !important; }
+#gmKeyInput { background-color: #0a1628 !important; border-color: #1a5276 !important; }
+#sessionBox { background-color: #0a1628 !important; border-color: #27ae60 !important; }
 font, .notranslate { background: transparent !important; }
 .auth-title font, .auth-sub font, .auth-box font { background: transparent !important; color: inherit !important; }
 body { background-color: #1a1a2e !important; color: #eee !important; }
@@ -180,8 +190,8 @@ input[type=text] { width: 72px; }
 #authScreen{position:fixed;inset:0;background:#0d1b2a !important;display:flex;align-items:center;justify-content:center;z-index:1000;}
 #authScreen.hidden{display:none !important;}
 .auth-box{background:#16213e !important;border:1px solid #1a5276 !important;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;}
-.auth-title{font-size:18px;color:#aad4f5 !important;font-weight:bold;text-align:center;}
-.auth-sub{font-size:12px;color:#7fb3d3 !important;text-align:center;}
+.auth-title{font-size:18px;color:#aad4f5 !important;font-weight:bold;text-align:center;background:transparent !important;background-color:transparent !important;}
+.auth-sub{font-size:12px;color:#7fb3d3 !important;text-align:center;background:transparent !important;background-color:transparent !important;}
 #gmKeyInput{background:#0a1628 !important;color:#eee !important;border:1px solid #1a5276 !important;border-radius:5px;padding:12px 14px;font-size:18px;width:100%;}
 .auth-btn-green{background:#1a4a2e !important;border:1px solid #27ae60 !important;border-radius:6px;color:#eee !important;padding:10px;font-size:14px;cursor:pointer;width:100%;}
 .auth-btn-green:hover{background:#27ae60;}
