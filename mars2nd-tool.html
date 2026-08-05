@@ -9,6 +9,9 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { color-scheme: only dark; }
+/* Google翻訳の干渉を防ぐ */
+font, .notranslate { background: transparent !important; }
+.auth-title font, .auth-sub font, .auth-box font { background: transparent !important; color: inherit !important; }
 body { background-color: #1a1a2e !important; color: #eee !important; }
 body * { color: inherit; }
 #authScreen { background-color: #0d1b2a !important; }
@@ -675,18 +678,15 @@ function copySessionUrl(){
 }
 async function startAsGM(){
   if(!currentSessionId){alert('セッションIDを生成してください');return;}
-  try{
-    await fetch(GAS_URL+'?action=set&id='+currentSessionId);
-  }catch(e){ console.warn('GAS書き込み失敗',e); }
+  // 画面遷移を先に行い、GAS書き込みはバックグラウンドで
   history.replaceState(null,'',window.location.href.split('?')[0]+'?session='+currentSessionId);
   enterTool('GM',currentSessionId);
+  fetch(GAS_URL+'?action=set&id='+currentSessionId).catch(e=>console.warn('GAS書き込み失敗',e));
 }
 function getUrlSessionId(){return(new URLSearchParams(window.location.search).get('session')||'').toUpperCase();}
 async function endSession(){
   if(!confirm('セッションを終了しますか？\nプレイヤーは古いURLからアクセスできなくなります。'))return;
-  try{
-    await fetch(GAS_URL+'?action=clear');
-  }catch(e){ console.warn('GAS消去失敗',e); }
+  fetch(GAS_URL+'?action=clear').catch(e=>console.warn('GAS消去失敗',e));
   history.replaceState(null,'',window.location.href.split('?')[0]);
   location.reload();
 }
