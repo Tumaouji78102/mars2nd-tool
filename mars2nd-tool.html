@@ -36,7 +36,7 @@ body { font-family: sans-serif; background: #1a1a2e; color: #eee; font-size: 13p
 #topbar {
   display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap;
   background: #0d1b2a; border-bottom: 1px solid #1a5276;
-  padding: 5px 6px; flex-shrink: 0;
+  padding: 5px 6px; flex-shrink: 0; overflow-x: auto; max-height: 80px; overflow-y: auto;
 }
 .tb-section {
   background: #16213e; border-radius: 5px; padding: 4px 8px;
@@ -71,7 +71,7 @@ input[type=text] { width: 72px; }
 
 /* 左カラム */
 #left-col {
-  width: 240px; min-width: 120px; max-width: 60vw;
+  width: 200px; min-width: 100px; max-width: 60vw;
   flex-shrink: 0; display: flex; flex-direction: column;
   background: #131328; overflow: hidden;
 }
@@ -89,7 +89,7 @@ input[type=text] { width: 72px; }
 #handArea {
   flex: 1; overflow-x: auto; overflow-y: hidden;
   display: flex; flex-wrap: nowrap; align-items: flex-start;
-  padding: 4px; border: 1px dashed #2a4a6a; border-radius: 5px; min-height: 84px;
+  padding: 4px; border: 1px dashed #2a4a6a; border-radius: 5px; min-height: 60px;
   transition: border-color 0.12s, background 0.12s;
 }
 #handArea.drag-over      { border-color: #f1c40f; background: #1e2e1e; }
@@ -100,9 +100,9 @@ input[type=text] { width: 72px; }
 
 /* ── 山札 ── */
 .deck-wrap { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.deck-stack { position: relative; width: 64px; height: 88px; cursor: grab; flex-shrink: 0; }
+.deck-stack { position: relative; width: 54px; height: 76px; cursor: grab; flex-shrink: 0; }
 .deck-stack-card {
-  position: absolute; width: 58px; height: 80px; border-radius: 6px;
+  position: absolute; width: 50px; height: 70px; border-radius: 6px;
   background: #1a3a6e; border: 1.5px solid #2980b9;
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; color: #2980b9; user-select: none;
@@ -114,7 +114,7 @@ input[type=text] { width: 72px; }
 
 /* ── 捨札 ── */
 .discard-top-card {
-  width: 58px; height: 80px; border-radius: 6px; border: 1.5px solid #555;
+  width: 50px; height: 70px; border-radius: 6px; border: 1.5px solid #555;
   background: #fff; color: #222; font-size: 12px; font-weight: bold;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   position: relative; flex-shrink: 0; cursor: grab;
@@ -135,7 +135,7 @@ input[type=text] { width: 72px; }
 /* ── 通常カード ── */
 .card {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 50px; height: 70px; border-radius: 6px; border: 1.5px solid #555;
+  width: 44px; height: 62px; border-radius: 6px; border: 1.5px solid #555;
   background: #fff; color: #222; font-size: 12px; font-weight: bold;
   cursor: grab; user-select: none; margin: 2px; position: relative; flex-shrink: 0;
   transition: transform 0.08s;
@@ -148,10 +148,10 @@ input[type=text] { width: 72px; }
 .card.first-card:not(.selected)  { outline: 3px solid #e74c3c; outline-offset: 2px; }
 .card.last-discard:not(.selected){ outline: 3px solid #e74c3c; outline-offset: 2px; }
 .card.dragging { opacity: 0.3; transform: scale(0.93); }
-.card-suit { font-size: 17px; line-height: 1; }
-.card-num  { font-size: 11px; margin-top: 1px; }
+.card-suit { font-size: 14px; line-height: 1; }
+.card-num  { font-size: 10px; margin-top: 1px; }
 .card-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#e74c3c; color:#fff; font-size:9px; border-radius:3px; padding:1px 3px; white-space:nowrap; pointer-events:none; }
-.card-popup { display:none; position:absolute; bottom:76px; left:50%; transform:translateX(-50%); background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:300; white-space:nowrap; pointer-events:none; box-shadow:0 2px 8px rgba(0,0,0,0.7); }
+.card-popup { display:none; position:fixed; background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:9999; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); transform:none; }
 .card-popup.red   { color:#c0392b; }
 .card-popup.joker { color:#6c3483; }
 .card.face-down:hover .card-popup { display:block; }
@@ -446,6 +446,25 @@ function revealZone(zid){ ['upper','lower'].forEach(r=>fields[zid][r].forEach(c=
 function revealFirstFaceDown(zid){ for(const r of ['upper','lower']){ const c=fields[zid][r].find(c=>c.faceDown); if(c){c.faceDown=false;break;} } render(); }
 function toggleFieldCard(zid,row,idx){ fields[zid][row][idx].faceDown=!fields[zid][row][idx].faceDown; render(); }
 function toggleSelectCard(i){ hand[i].selected=!hand[i].selected; render(); }
+
+// 裏向き札ホバー時にポップアップを正確な位置に表示
+document.addEventListener('mouseover', function(e){
+  const card = e.target.closest('.card.face-down');
+  if(!card) return;
+  const popup = card.querySelector('.card-popup');
+  if(!popup) return;
+  const rect = card.getBoundingClientRect();
+  popup.style.left = (rect.left + rect.width/2) + 'px';
+  popup.style.top = (rect.top - 50) + 'px';
+  popup.style.transform = 'translateX(-50%)';
+  popup.style.display = 'block';
+});
+document.addEventListener('mouseout', function(e){
+  const card = e.target.closest('.card.face-down');
+  if(!card) return;
+  const popup = card.querySelector('.card-popup');
+  if(popup) popup.style.display = 'none';
+});
 
 /* ── ドラッグ＆ドロップ ── */
 function onDeckDragStart(e){
