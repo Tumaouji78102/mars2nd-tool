@@ -138,7 +138,7 @@ input[type=text] { width: 72px; }
   width: 44px; height: 62px; border-radius: 6px; border: 1.5px solid #555;
   background: #fff; color: #222; font-size: 12px; font-weight: bold;
   cursor: grab; user-select: none; margin: 2px; position: relative; flex-shrink: 0;
-  transition: transform 0.08s;
+  transition: transform 0.08s; overflow: visible;
 }
 .card:hover { transform: translateY(-2px); }
 .card.red   { color: #c0392b; }
@@ -151,7 +151,7 @@ input[type=text] { width: 72px; }
 .card-suit { font-size: 14px; line-height: 1; }
 .card-num  { font-size: 10px; margin-top: 1px; }
 .card-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#e74c3c; color:#fff; font-size:9px; border-radius:3px; padding:1px 3px; white-space:nowrap; pointer-events:none; }
-.card-popup { display:none; position:fixed; background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:9999; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); transform:none; }
+.card-popup { display:none; position:absolute; bottom:76px; left:50%; transform:translateX(-50%); background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:9999; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); }
 .card-popup.red   { color:#c0392b; }
 .card-popup.joker { color:#6c3483; }
 .card.face-down:hover .card-popup { display:block; }
@@ -160,7 +160,7 @@ input[type=text] { width: 72px; }
 .drop-zone {
   min-height: 78px; border: 1px dashed #2a4a6a; border-radius: 5px;
   display: flex; flex-wrap: wrap; align-items: flex-start; padding: 4px;
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color 0.12s, background 0.12s; overflow: visible;
 }
 .drop-zone.drag-over      { border-color: #f1c40f; background: #1e2e1e; }
 .drop-zone.drag-over-deck { border-color: #3498db; background: #0d1b2e; }
@@ -447,24 +447,6 @@ function revealFirstFaceDown(zid){ for(const r of ['upper','lower']){ const c=fi
 function toggleFieldCard(zid,row,idx){ fields[zid][row][idx].faceDown=!fields[zid][row][idx].faceDown; render(); }
 function toggleSelectCard(i){ hand[i].selected=!hand[i].selected; render(); }
 
-// 裏向き札ホバー時にポップアップを正確な位置に表示
-document.addEventListener('mouseover', function(e){
-  const card = e.target.closest('.card.face-down');
-  if(!card) return;
-  const popup = card.querySelector('.card-popup');
-  if(!popup) return;
-  const rect = card.getBoundingClientRect();
-  popup.style.left = (rect.left + rect.width/2) + 'px';
-  popup.style.top = (rect.top - 50) + 'px';
-  popup.style.transform = 'translateX(-50%)';
-  popup.style.display = 'block';
-});
-document.addEventListener('mouseout', function(e){
-  const card = e.target.closest('.card.face-down');
-  if(!card) return;
-  const popup = card.querySelector('.card-popup');
-  if(popup) popup.style.display = 'none';
-});
 
 /* ── ドラッグ＆ドロップ ── */
 function onDeckDragStart(e){
