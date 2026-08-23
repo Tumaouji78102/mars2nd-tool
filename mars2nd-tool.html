@@ -705,6 +705,21 @@ function enterTool(role,sid){
   const as=document.getElementById('authScreen');
   as.classList.add('hidden');
   as.style.display='none';
+  // 裏向き札ポップアップをカーソル直上に表示
+  document.addEventListener('mousemove', function(e){
+    const card = e.target.closest('.card.face-down');
+    document.querySelectorAll('.card-popup').forEach(p=>p.style.display='none');
+    if(!card) return;
+    const popup = card.querySelector('.card-popup');
+    if(!popup) return;
+    popup.style.display='block';
+    popup.style.position='fixed';
+    popup.style.zIndex='9999';
+    const rect = card.getBoundingClientRect();
+    popup.style.left = (rect.left + rect.width/2) + 'px';
+    popup.style.top = (rect.top - 40) + 'px';
+    popup.style.transform = 'translateX(-50%)';
+  });
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
   if(role==='GM'){
@@ -743,22 +758,7 @@ async function initAuth(){
   }
 }
 
-window.onload=()=>{
-  initAuth();
-  // 裏向き札ポップアップをカーソル直上に表示
-  document.addEventListener('mousemove', function(e){
-    const card = e.target.closest('.card.face-down');
-    // 表示中のpopupを全て隠す
-    document.querySelectorAll('.card-popup').forEach(p=>p.style.display='none');
-    if(!card) return;
-    const popup = card.querySelector('.card-popup');
-    if(!popup) return;
-    popup.style.display='block';
-    const rect = card.getBoundingClientRect();
-    popup.style.left = (rect.left + rect.width/2 - popup.offsetWidth/2) + 'px';
-    popup.style.top = (rect.top - popup.offsetHeight - 6) + 'px';
-  });
-};
+window.onload=()=>{ initAuth(); };
 </script>
 </body>
 </html>
