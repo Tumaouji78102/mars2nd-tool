@@ -715,10 +715,13 @@ function enterTool(role,sid){
     popup.style.display='block';
     popup.style.position='fixed';
     popup.style.zIndex='9999';
+    popup.style.transform='translateX(-50%)';
     const rect = card.getBoundingClientRect();
     popup.style.left = (rect.left + rect.width/2) + 'px';
-    popup.style.top = (rect.top - 40) + 'px';
-    popup.style.transform = 'translateX(-50%)';
+    // 一旦topを仮設定してoffsetHeightを取得
+    popup.style.top = '0px';
+    const ph = popup.offsetHeight||36;
+    popup.style.top = (rect.top - ph - 4) + 'px';
   });
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
