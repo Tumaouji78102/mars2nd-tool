@@ -151,7 +151,7 @@ input[type=text] { width: 72px; }
 .card-suit { font-size: 14px; line-height: 1; }
 .card-num  { font-size: 10px; margin-top: 1px; }
 .card-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#e74c3c; color:#fff; font-size:9px; border-radius:3px; padding:1px 3px; white-space:nowrap; pointer-events:none; }
-.card-popup { display:none; position:fixed; background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:9999; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); }
+.card-popup { display:none; position:fixed; background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:2147483647; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); }
 .card-popup.red   { color:#c0392b; }
 .card-popup.joker { color:#6c3483; }
 /* popup controlled by JS */
@@ -546,12 +546,13 @@ function cardEl(card,clickFn,isFirst,isLast,from,zid,row,idx){
   else if(isFirst)       cls+=' first-card';
   else if(isLast)        cls+=' last-discard';
   const inner=card.faceDown
-    ?`<span class="card-suit">🂠</span><div class="card-popup${isRed?' red':isJoker?' joker':''}">${isJoker?'🃏 JOKER':card.suit+card.num}</div>`
+    ?`<span class="card-suit">🂠</span>`
     :`<span class="card-suit">${isJoker?'🃏':card.suit}</span><span class="card-num">${isJoker?'':card.num}</span>`;
   const badge=(isFirst&&!card.selected)?'<span class="card-badge">1枚目</span>':
               (isLast&&!card.selected)?'<span class="card-badge">最後</span>':'';
   const ds=from?`draggable="true" ondragstart="onDragStart(event,'${from}','${zid||''}','${row||''}',${idx})" ondragend="onDragEnd(event)"`:'';
-  return `<div class="${cls}" data-idx="${idx}" ${ds} onclick="${clickFn}">${badge}${inner}</div>`;
+  const tooltip=card.faceDown?` data-card-tooltip="${isJoker?'🃏 JOKER':card.suit+card.num}" data-card-tone="${isJoker?'joker':isRed?'red':'black'}"`:"";
+  return `<div class="${cls}" data-idx="${idx}"${tooltip} ${ds} onclick="${clickFn}">${badge}${inner}</div>`;
 }
 
 /* ── 捨札トップ更新 ── */
@@ -701,28 +702,46 @@ async function endSession(){
   history.replaceState(null,'',window.location.href.split('?')[0]);
   location.reload();
 }
+let cardTooltipReady=false;
+function setupCardTooltip(){
+  if(cardTooltipReady) return;
+  cardTooltipReady=true;
+  const popup=document.createElement('div');
+  popup.id='globalCardTooltip';
+  popup.className='card-popup';
+  popup.setAttribute('role','tooltip');
+  document.body.appendChild(popup);
+
+  const hide=()=>{ popup.style.display='none'; };
+  document.addEventListener('mousemove',e=>{
+    const card=e.target.closest?.('.card.face-down[data-card-tooltip]');
+    if(!card){ hide(); return; }
+    popup.textContent=card.dataset.cardTooltip;
+    popup.className='card-popup'+(card.dataset.cardTone==='red'?' red':card.dataset.cardTone==='joker'?' joker':'');
+    popup.style.display='block';
+    popup.style.transform='none';
+    const rect=card.getBoundingClientRect();
+    const margin=6;
+    const pw=popup.offsetWidth,ph=popup.offsetHeight;
+    const center=rect.left+rect.width/2;
+    const left=Math.max(margin,Math.min(center-pw/2,window.innerWidth-pw-margin));
+    const above=rect.top-ph-margin;
+    const top=above>=margin?above:Math.min(window.innerHeight-ph-margin,rect.bottom+margin);
+    popup.style.left=left+'px';
+    popup.style.top=Math.max(margin,top)+'px';
+  });
+  document.addEventListener('scroll',hide,true);
+  window.addEventListener('blur',hide);
+  document.addEventListener('dragstart',hide);
+}
+
 function enterTool(role,sid){
   const as=document.getElementById('authScreen');
   as.classList.add('hidden');
   as.style.display='none';
-  // 裏向き札ポップアップをカーソル直上に表示
-  document.addEventListener('mousemove', function(e){
-    const card = e.target.closest('.card.face-down');
-    document.querySelectorAll('.card-popup').forEach(p=>p.style.display='none');
-    if(!card) return;
-    const popup = card.querySelector('.card-popup');
-    if(!popup) return;
-    popup.style.display='block';
-    popup.style.position='fixed';
-    popup.style.zIndex='9999';
-    popup.style.transform='translateX(-50%)';
-    const rect = card.getBoundingClientRect();
-    popup.style.left = (rect.left + rect.width/2) + 'px';
-    // 一旦topを仮設定してoffsetHeightを取得
-    popup.style.top = '0px';
-    const ph = popup.offsetHeight||36;
-    popup.style.top = (rect.top - ph - 4) + 'px';
-  });
+  // カードの内側に固定配置すると、hover の transform が座標系と重なり順に干渉する。
+  // そのためポップアップは body 直下に1つだけ生成する。
+  setupCardTooltip();
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
   if(role==='GM'){
