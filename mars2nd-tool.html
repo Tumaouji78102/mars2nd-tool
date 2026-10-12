@@ -151,9 +151,29 @@ input[type=text] { width: 72px; }
 .card-suit { font-size: 14px; line-height: 1; }
 .card-num  { font-size: 10px; margin-top: 1px; }
 .card-badge { position:absolute; top:-9px; left:50%; transform:translateX(-50%); background:#e74c3c; color:#fff; font-size:9px; border-radius:3px; padding:1px 3px; white-space:nowrap; pointer-events:none; }
-.card-popup { display:none; position:fixed; background:#fff; color:#222; border:2px solid #f1c40f; border-radius:7px; padding:5px 9px; font-size:14px; font-weight:bold; z-index:2147483647; white-space:nowrap; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.9); }
-.card-popup.red   { color:#c0392b; }
-.card-popup.joker { color:#6c3483; }
+/* ポップアップは画面最上位(top layer)に置く。座標基準を左上(0,0)へ固定する。 */
+#globalCardTooltip {
+  position: fixed !important;
+  inset: 0 auto auto 0 !important;
+  margin: 0 !important;
+  padding: 5px 9px;
+  box-sizing: border-box;
+  display: none;
+  border: 2px solid #f1c40f;
+  border-radius: 7px;
+  background: #fff;
+  color: #222;
+  font: bold 14px sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,.9);
+  z-index: 2147483647;
+  transform: none !important;
+}
+#globalCardTooltip:popover-open { display: block; }
+#globalCardTooltip.red { color: #c0392b; }
+#globalCardTooltip.joker { color: #6c3483; }
+
 /* popup controlled by JS */
 
 /* ── ドロップゾーン（場） ── */
@@ -708,31 +728,41 @@ function setupCardTooltip(){
   cardTooltipReady=true;
   const popup=document.createElement('div');
   popup.id='globalCardTooltip';
-  popup.className='card-popup';
   popup.setAttribute('role','tooltip');
+  // top layer の popover は比較固定欄などの stacking context より前に出る。
+  popup.setAttribute('popover','manual');
   document.body.appendChild(popup);
-
-  const hide=()=>{ popup.style.display='none'; };
+  const canPopover=typeof popup.showPopover==='function';
+  let visible=false;
+  const hide=()=>{
+    if(!visible) return;
+    visible=false;
+    if(canPopover && popup.matches(':popover-open')) popup.hidePopover();
+    else popup.style.display='none';
+  };
   document.addEventListener('mousemove',e=>{
     const card=e.target.closest?.('.card.face-down[data-card-tooltip]');
     if(!card){ hide(); return; }
     popup.textContent=card.dataset.cardTooltip;
-    popup.className='card-popup'+(card.dataset.cardTone==='red'?' red':card.dataset.cardTone==='joker'?' joker':'');
-    popup.style.display='block';
-    popup.style.transform='none';
+    popup.className=card.dataset.cardTone==='red'?'red':card.dataset.cardTone==='joker'?'joker':'';
+    if(!visible){
+      if(canPopover) popup.showPopover();
+      else popup.style.display='block';
+      visible=true;
+    }
     const rect=card.getBoundingClientRect();
     const margin=6;
     const pw=popup.offsetWidth,ph=popup.offsetHeight;
     const center=rect.left+rect.width/2;
-    const left=Math.max(margin,Math.min(center-pw/2,window.innerWidth-pw-margin));
+    const x=Math.max(margin,Math.min(center-pw/2,window.innerWidth-pw-margin));
     const above=rect.top-ph-margin;
-    const top=above>=margin?above:Math.min(window.innerHeight-ph-margin,rect.bottom+margin);
-    popup.style.left=left+'px';
-    popup.style.top=Math.max(margin,top)+'px';
+    const y=above>=margin?above:Math.min(window.innerHeight-ph-margin,rect.bottom+margin);
+    // inset は(0,0)固定。translate だけで座標を指定する。
+    popup.style.translate=`${Math.round(x)}px ${Math.round(Math.max(margin,y))}px`;
   });
   document.addEventListener('scroll',hide,true);
+  document.addEventListener('dragstart',hide,true);
   window.addEventListener('blur',hide);
-  document.addEventListener('dragstart',hide);
 }
 
 function enterTool(role,sid){
