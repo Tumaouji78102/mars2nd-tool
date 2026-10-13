@@ -716,12 +716,32 @@ async function startAsGM(){
   fetch(GAS_URL+'?action=set&id='+currentSessionId).catch(e=>console.warn('GAS書き込み失敗',e));
 }
 function getUrlSessionId(){return(new URLSearchParams(window.location.search).get('session')||'').toUpperCase();}
+let sessionEndInProgress=false;
 async function endSession(){
-  if(!confirm('セッションを終了しますか？\nプレイヤーは古いURLからアクセスできなくなります。'))return;
-  fetch(GAS_URL+'?action=clear').catch(e=>console.warn('GAS消去失敗',e));
-  history.replaceState(null,'',window.location.href.split('?')[0]);
-  location.reload();
+  if(sessionEndInProgress) return;
+  if(!confirm('セッションを終了しますか？\nプレイヤーは古いURLからアクセスできなくなります。')) return;
+
+  sessionEndInProgress=true;
+  const button=document.querySelector('#endSessionBtn button');
+  if(button){ button.disabled=true; button.textContent='終了処理中…'; }
+  try {
+    // Apps Script の Web アプリはクロスオリジンのため、応答本文を
+    // JavaScript から読めない場合がある。no-cors の完了を待ち、
+    // 少なくともページ再読み込みによる送信途中の中断を防ぐ。
+    // ※ opaque 応答はサーバーでの消去成功を保証しない。
+    await fetch(GAS_URL+'?action=clear&_='+Date.now(), {
+      method:'GET', mode:'no-cors', cache:'no-store', redirect:'follow'
+    });
+    history.replaceState(null,'',window.location.href.split('?')[0]);
+    location.reload();
+  } catch(err) {
+    console.error('GASセッション終了要求失敗',err);
+    alert('終了要求を送信できませんでした。セッションは終了したと扱わず、通信状態を確認して再試行してください。');
+    sessionEndInProgress=false;
+    if(button){ button.disabled=false; button.textContent='⏹ セッション終了'; }
+  }
 }
+
 let cardTooltipReady=false;
 function setupCardTooltip(){
   if(cardTooltipReady) return;
