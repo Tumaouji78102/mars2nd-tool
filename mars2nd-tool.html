@@ -679,12 +679,39 @@ function renderOnly(){
 const GM_KEY_HASH='1c2c9e5da65e332e48cc1907954fdccb41e53d23488494c623b5a381acb4d17b';
 const GAS_URL='https://script.google.com/macros/s/AKfycby83OoE2kB3L1_0bjVxUn6u8RR6a9IAQCQF2uA6s6FoJvsb7wjVPyU2u6ApP8YuVlNM/exec';
 let currentSessionId=null;
+// GMキーはこのタブのメモリにのみ保持。URLやlocalStorageに書かない。
+let gmCredential=null;
+let sessionStartInProgress=false;
+async function getActiveSessionId(){
+  const res=await fetch(GAS_URL+'?action=get&_='+Date.now(),{cache:'no-store'});
+  if(!res.ok) throw new Error('GAS読み取り HTTP '+res.status);
+  return (await res.text()).trim().toUpperCase();
+}
+async function postGMAction(action,id){
+  if(!gmCredential) throw new Error('GMキーがありません。再度GMとして入室してください。');
+  // GASのクロスオリジンPOSTは opaque になり得るため、後続のGETで結果を検証する。
+  const body=new URLSearchParams({action,id,gmKey:gmCredential});
+  await fetch(GAS_URL,{method:'POST',mode:'no-cors',body});
+}
+async function awaitSessionState(expected){
+  let lastError=null;
+  for(let i=0;i<5;i++){
+    try{
+      const active=await getActiveSessionId();
+      if(active===expected) return;
+    } catch(e){lastError=e;}
+    await new Promise(resolve=>setTimeout(resolve,350));
+  }
+  throw new Error(lastError?'GASからの確認に失敗しました':'スプレッドシート上の変更を確認できませんでした');
+}
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function verifyGM(){
   const k=document.getElementById('gmKeyInput').value;
   if(!k){document.getElementById('gmError').textContent='GMキーを入力してください';return;}
   const h=await hashText(k);
   if(h!==GM_KEY_HASH){document.getElementById('gmError').textContent='GMキーが正しくありません';return;}
+  gmCredential=k;
+  document.getElementById('gmKeyInput').value='';
   document.getElementById('gmError').textContent='';
   // 第一画面要素を非表示
   document.getElementById('gmKeyInput').style.display='none';
@@ -709,36 +736,43 @@ function copySessionUrl(){
   navigator.clipboard.writeText(u).then(()=>alert('コピーしました')).catch(()=>alert('URL: '+u));
 }
 async function startAsGM(){
+  if(sessionStartInProgress) return;
   if(!currentSessionId){alert('セッションIDを生成してください');return;}
-  // 画面遷移を先に行い、GAS書き込みはバックグラウンドで
-  history.replaceState(null,'',window.location.href.split('?')[0]+'?session='+currentSessionId);
-  enterTool('GM',currentSessionId);
-  fetch(GAS_URL+'?action=set&id='+currentSessionId).catch(e=>console.warn('GAS書き込み失敗',e));
+  sessionStartInProgress=true;
+  const btn=document.querySelector('#sessionBox .auth-btn-green');
+  if(btn){btn.disabled=true;btn.textContent='開始処理中…';}
+  try {
+    await postGMAction('set',currentSessionId);
+    await awaitSessionState(currentSessionId);
+    history.replaceState(null,'',window.location.href.split('?')[0]+'?session='+currentSessionId);
+    enterTool('GM',currentSessionId);
+  } catch(err) {
+    console.error('セッション開始エラー',err);
+    alert('セッション開始を確認できませんでした。GASのデプロイ・通信状態・GMキーを確認してください。');
+  } finally {
+    sessionStartInProgress=false;
+    if(btn){btn.disabled=false;btn.textContent='▶ セッション開始';}
+  }
 }
 function getUrlSessionId(){return(new URLSearchParams(window.location.search).get('session')||'').toUpperCase();}
 let sessionEndInProgress=false;
 async function endSession(){
   if(sessionEndInProgress) return;
-  if(!confirm('セッションを終了しますか？\nプレイヤーは古いURLからアクセスできなくなります。')) return;
-
+  if(!confirm('セッションを終了しますか？\nプレイヤーは古いURLからアクセスできなくなります。'))return;
   sessionEndInProgress=true;
   const button=document.querySelector('#endSessionBtn button');
-  if(button){ button.disabled=true; button.textContent='終了処理中…'; }
+  if(button){button.disabled=true;button.textContent='終了処理中…';}
   try {
-    // Apps Script の Web アプリはクロスオリジンのため、応答本文を
-    // JavaScript から読めない場合がある。no-cors の完了を待ち、
-    // 少なくともページ再読み込みによる送信途中の中断を防ぐ。
-    // ※ opaque 応答はサーバーでの消去成功を保証しない。
-    await fetch(GAS_URL+'?action=clear&_='+Date.now(), {
-      method:'GET', mode:'no-cors', cache:'no-store', redirect:'follow'
-    });
+    await postGMAction('clear',currentSessionId);
+    await awaitSessionState('');
+    gmCredential=null;
     history.replaceState(null,'',window.location.href.split('?')[0]);
     location.reload();
   } catch(err) {
     console.error('GASセッション終了要求失敗',err);
-    alert('終了要求を送信できませんでした。セッションは終了したと扱わず、通信状態を確認して再試行してください。');
+    alert('終了を確認できませんでした。セッションはまだ有効かもしれません。GASの状態を確認して再試行してください。');
     sessionEndInProgress=false;
-    if(button){ button.disabled=false; button.textContent='⏹ セッション終了'; }
+    if(button){button.disabled=false;button.textContent='⏹ セッション終了';}
   }
 }
 
@@ -824,9 +858,9 @@ async function initAuth(){
       document.getElementById('authScreen').innerHTML='<div class="auth-box" style="background-color:#16213e;border:1px solid #1a5276;border-radius:10px;padding:28px 32px;display:flex;flex-direction:column;gap:12px;min-width:340px;max-width:90vw;"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub" style="color:#e74c3c;">セッションIDが無効です。GMに確認してください。</div></div>';
     }
   }catch(e){
-    // GAS接続失敗時はURLのIDでそのまま入室（フォールバック）
-    console.warn('GAS照合失敗、フォールバック入室');
-    enterTool('PL',urlId);
+    // 通信エラー時の無条件入室は認証を迂回するので禁止する。
+    console.error('GAS照合失敗',e);
+    document.getElementById('authScreen').innerHTML='<div class="auth-box"><div class="auth-title">マルス2nd 補助ツール</div><div class="auth-sub">通信エラーです。再読み込みしてやり直してください。</div></div>';
   }
 }
 
