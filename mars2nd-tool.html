@@ -239,9 +239,9 @@ input[type=text] { width: 72px; }
       <div id="sessionUrlDisplay"></div>
       <div style="display:flex;gap:6px;">
         <button class="sess-btn" onclick="copySessionUrl()">🔗 プレイヤー用URLをコピー</button>
-        <button class="sess-btn" onclick="generateSessionId()">🔄 再生成</button>
+        <button class="sess-btn" id="regenerateSessionBtn" onclick="generateSessionId()">🔄 再生成</button>
       </div>
-      <button class="auth-btn-green" onclick="startAsGM()">▶ セッション開始</button>
+      <button class="auth-btn-green" id="sessionActionBtn" onclick="startAsGM()">▶ セッション開始</button>
     </div>
   </div>
 </div>
@@ -687,10 +687,10 @@ async function getActiveSessionId(){
   if(!res.ok) throw new Error('GAS読み取り HTTP '+res.status);
   return (await res.text()).trim().toUpperCase();
 }
-async function postGMAction(action,id){
+async function postGMAction(action,id,extra={}){
   if(!gmCredential) throw new Error('GMキーがありません。再度GMとして入室してください。');
   // GASのクロスオリジンPOSTは opaque になり得るため、後続のGETで結果を検証する。
-  const body=new URLSearchParams({action,id,gmKey:gmCredential});
+  const body=new URLSearchParams({action,id,gmKey:gmCredential,...extra});
   await fetch(GAS_URL,{method:'POST',mode:'no-cors',body});
 }
 async function awaitSessionState(expected){
@@ -705,31 +705,59 @@ async function awaitSessionState(expected){
   throw new Error(lastError?'GASからの確認に失敗しました':'スプレッドシート上の変更を確認できませんでした');
 }
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
-async function verifyGM(){
-  const k=document.getElementById('gmKeyInput').value;
-  if(!k){document.getElementById('gmError').textContent='GMキーを入力してください';return;}
-  const h=await hashText(k);
-  if(h!==GM_KEY_HASH){document.getElementById('gmError').textContent='GMキーが正しくありません';return;}
-  gmCredential=k;
-  document.getElementById('gmKeyInput').value='';
-  document.getElementById('gmError').textContent='';
-  // 第一画面要素を非表示
-  document.getElementById('gmKeyInput').style.display='none';
-  document.getElementById('gmLoginBtn').style.display='none';
-  document.getElementById('gmError').style.display='none';
-  document.getElementById('gmSubTitle').style.display='none';
-  // 第二画面を表示
-  document.getElementById('sessionBox').style.display='flex';
-  generateSessionId();
-}
-function generateSessionId(){
-  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let id='';for(let i=0;i<8;i++)id+=c[Math.floor(Math.random()*c.length)];
+let sessionMode='new';
+function showSessionId(id){
   currentSessionId=id;
   document.getElementById('sessionIdDisplay').textContent=id;
   const url=window.location.href.split('?')[0]+'?session='+id;
   const el=document.getElementById('sessionUrlDisplay');
   el.textContent=url;el.dataset.url=url;
+}
+async function verifyGM(){
+  const keyField=document.getElementById('gmKeyInput');
+  const loginBtn=document.getElementById('gmLoginBtn');
+  const error=document.getElementById('gmError');
+  const k=keyField.value;
+  if(!k){error.textContent='GMキーを入力してください';return;}
+  loginBtn.disabled=true;
+  error.textContent='開催中のセッションを確認中…';
+  try {
+    const h=await hashText(k);
+    if(h!==GM_KEY_HASH){error.textContent='GMキーが正しくありません';return;}
+    // 通信失敗時には新規開始を許さない。
+    const active=await getActiveSessionId();
+    gmCredential=k;
+    keyField.value='';
+    keyField.style.display='none';
+    loginBtn.style.display='none';
+    error.style.display='none';
+    document.getElementById('gmSubTitle').style.display='none';
+    document.getElementById('sessionBox').style.display='flex';
+    const regenerate=document.getElementById('regenerateSessionBtn');
+    const actionBtn=document.getElementById('sessionActionBtn');
+    if(active){
+      sessionMode='resume';
+      showSessionId(active);
+      regenerate.style.display='none';
+      actionBtn.textContent='↩ 既存セッションにGMとして復帰';
+    }else{
+      sessionMode='new';
+      generateSessionId();
+      regenerate.style.display='';
+      actionBtn.textContent='▶ セッション開始';
+    }
+  }catch(e){
+    console.error('GMログイン時のGAS照会失敗',e);
+    error.textContent='GASとの通信に失敗しました。再試行してください。';
+  }finally{loginBtn.disabled=false;}
+}
+function generateSessionId(){
+  if(sessionMode!=='new') return;
+  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const random=new Uint32Array(8);
+  crypto.getRandomValues(random);
+  const id=Array.from(random,x=>c[x%c.length]).join('');
+  showSessionId(id);
 }
 function copySessionUrl(){
   const u=document.getElementById('sessionUrlDisplay').dataset.url;
@@ -737,22 +765,48 @@ function copySessionUrl(){
 }
 async function startAsGM(){
   if(sessionStartInProgress) return;
-  if(!currentSessionId){alert('セッションIDを生成してください');return;}
+  if(!currentSessionId){alert('セッションIDがありません');return;}
   sessionStartInProgress=true;
-  const btn=document.querySelector('#sessionBox .auth-btn-green');
-  if(btn){btn.disabled=true;btn.textContent='開始処理中…';}
+  const btn=document.getElementById('sessionActionBtn');
+  if(btn){btn.disabled=true;btn.textContent=sessionMode==='resume'?'復帰処理中…':'開始処理中…';}
   try {
-    await postGMAction('set',currentSessionId);
-    await awaitSessionState(currentSessionId);
+    if(sessionMode==='resume'){
+      // no-cors POST の応答は読めない。推測不能な一時トークンをサーバーへ送り、
+      // 認証成功時だけGASが保持したトークンを後続のGETで照合する。
+      const bytes=new Uint8Array(24);
+      crypto.getRandomValues(bytes);
+      const nonce=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+      await postGMAction('resume',currentSessionId,{nonce});
+      await awaitResumeConfirmation(currentSessionId,nonce);
+    }else{
+      // 既存IDを上書きしない。GAS側でも排他制御・拒否する。
+      const active=await getActiveSessionId();
+      if(active) throw new Error('開催中のセッションがあります。画面を再読み込みしてGM復帰してください。');
+      await postGMAction('set',currentSessionId);
+      await awaitSessionState(currentSessionId);
+    }
     history.replaceState(null,'',window.location.href.split('?')[0]+'?session='+currentSessionId);
     enterTool('GM',currentSessionId);
-  } catch(err) {
-    console.error('セッション開始エラー',err);
-    alert('セッション開始を確認できませんでした。GASのデプロイ・通信状態・GMキーを確認してください。');
-  } finally {
+  }catch(err){
+    console.error('GM開始・復帰エラー',err);
+    alert('GMの開始・復帰を確認できませんでした。'+err.message);
+  }finally{
     sessionStartInProgress=false;
-    if(btn){btn.disabled=false;btn.textContent='▶ セッション開始';}
+    if(btn){btn.disabled=false;btn.textContent=sessionMode==='resume'?'↩ 既存セッションにGMとして復帰':'▶ セッション開始';}
   }
+}
+async function awaitResumeConfirmation(id,nonce){
+  let lastError=null;
+  for(let i=0;i<6;i++){
+    try{
+      const params=new URLSearchParams({action:'resume-check',id,nonce,_:String(Date.now())});
+      const res=await fetch(GAS_URL+'?'+params.toString(),{cache:'no-store'});
+      if(!res.ok) throw new Error('GAS確認 HTTP '+res.status);
+      if((await res.text()).trim()==='OK') return;
+    }catch(e){lastError=e;}
+    await new Promise(resolve=>setTimeout(resolve,400));
+  }
+  throw new Error(lastError?'GAS復帰確認に失敗しました':'GM認証またはセッション状態の確認に失敗しました');
 }
 function getUrlSessionId(){return(new URLSearchParams(window.location.search).get('session')||'').toUpperCase();}
 let sessionEndInProgress=false;
