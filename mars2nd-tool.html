@@ -285,6 +285,12 @@ input[type=text] { width: 72px; }
     </div>
   </div>
 
+  <div class="tb-section" id="publicStateControls" style="display:none;">
+    <div class="tb-title">P3-1 公開盤面保存（GM）</div>
+    <div class="tb-row"><button id="savePublicBtn" onclick="savePublicBoard()">公開情報を保存</button>
+    <span class="note" id="publicSaveStatus">未保存</span></div>
+  </div>
+
   <div class="tb-section spacer"></div>
 
   <div class="tb-section">
@@ -704,6 +710,55 @@ async function awaitSessionState(expected){
   }
   throw new Error(lastError?'GASからの確認に失敗しました':'スプレッドシート上の変更を確認できませんでした');
 }
+// P3-1: GM側から公開可能な情報だけを抽出して保存する。
+// 自分以外の手札の内容、山札の順序、裏札の正体は送信しない。
+function publicCard_(c){
+  return c.faceDown ? {down:true} : {down:false,suit:c.suit,num:c.num};
+}
+function publicBoard_(){
+  return {
+    schema:1,deckCount:deck.length,discardCount:discard.length,
+    discardTop:discard.length?publicCard_(discard[discard.length-1]):null,
+    zones:zones.map(z=>({id:z.id,upper:fields[z.id].upper.map(publicCard_),lower:fields[z.id].lower.map(publicCard_)})),
+    handCounts:[{id:'gm',count:hand.length},...Array.from({length:parseInt(document.getElementById('plCount').value)},(_,i)=>({id:'pl'+(i+1),count:getHand('pl_hand_'+(i+1)).length}))]
+  };
+}
+let savingPublicBoard=false;
+async function getPublicBoard(id){
+  const q=new URLSearchParams({action:'public-state',id,_:String(Date.now())});
+  const response=await fetch(GAS_URL+'?'+q,{cache:'no-store'});
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  return await response.json();
+}
+async function savePublicBoard(){
+  if(savingPublicBoard || !gmCredential || !currentSessionId)return;
+  savingPublicBoard=true;
+  const button=document.getElementById('savePublicBtn');
+  const status=document.getElementById('publicSaveStatus');
+  if(button)button.disabled=true;
+  if(status)status.textContent='保存中…';
+  try{
+    const bytes=new Uint8Array(24);crypto.getRandomValues(bytes);
+    const receipt=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+    const state=JSON.stringify(publicBoard_());
+    await postGMAction('save-public',currentSessionId,{state,receipt});
+    let confirmed=false;
+    for(let i=0;i<8;i++){
+      await new Promise(r=>setTimeout(r,500));
+      const saved=await getPublicBoard(currentSessionId);
+      if(saved.status==='OK'&&saved.receipt===receipt){
+        confirmed=true;
+        if(status)status.textContent='保存済み v'+saved.version;
+        break;
+      }
+    }
+    if(!confirmed)throw new Error('サーバー側の保存確認が取れません');
+  }catch(err){
+    console.error('公開盤面保存エラー',err);
+    if(status)status.textContent='保存確認失敗';
+    alert('公開盤面の保存を確認できませんでした：'+err.message);
+  }finally{savingPublicBoard=false;if(button)button.disabled=false;}
+}
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 let sessionMode='new';
 function showSessionId(id){
@@ -883,6 +938,7 @@ function enterTool(role,sid){
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
   if(role==='GM'){
+    document.getElementById('publicStateControls').style.display='';
     // 既存のセッション終了ボタンがあれば削除
     const existing=document.getElementById('endSessionBtn');
     if(existing) existing.remove();
