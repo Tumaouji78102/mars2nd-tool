@@ -358,6 +358,15 @@ input[type=text] { width: 72px; }
     <div class="area-title" style="position:sticky;top:0;z-index:10;background:#1a1a2e;padding:3px 0;">
       場のカード　<span class="note">（赤枠＝上段1枚目）　（裏向き札にカーソルで内容確認）　（ドラッグで並び替え・移動）　<span style="color:#3498db;">★比較固定で2ゾーンを上部に表示</span></span>
     </div>
+    <section id="publicBoardPreview" aria-label="P3-2 共有公開盤面" style="display:none;background:#16213e;border:1px solid #3498db;border-radius:6px;padding:9px;flex-shrink:0;">
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+        <strong style="font-size:12px;color:#85c1e9;">P3-2 共有公開盤面（閲覧専用・約4秒間隔で確認）</strong>
+        <button class="small" onclick="refreshPublicPreview(true)">今すぐ取得</button>
+      </div>
+      <div id="publicPreviewStatus" class="note" role="status" style="margin:5px 0;white-space:normal;">接続待ち</div>
+      <div id="publicPreviewBody" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      <p class="note" style="margin-top:6px;white-space:normal;">これはサーバーに保存された公開情報の写しです。上のカード操作盤面はまだ同期しません。GMの「公開情報を保存」で更新されます。</p>
+    </section>
     <div id="compareArea"></div>
     <div id="fieldZones"></div>
     <div style="height:60vh;flex-shrink:0;"></div>
@@ -759,6 +768,72 @@ async function savePublicBoard(){
     alert('公開盤面の保存を確認できませんでした：'+err.message);
   }finally{savingPublicBoard=false;if(button)button.disabled=false;}
 }
+// P3-2: 保存済み公開盤面の読み取り専用プレビュー。ローカルのカード配列は一切変更しない。
+let publicPreviewTimer=null,publicPreviewLoading=false,publicPreviewVersion=null,publicPreviewSession=null;
+function previewElement_(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=String(text);return el;}
+function publicCardLabel_(c){
+  if(!c||c.down===true)return '🂠 裏';
+  const suits=['♠','♥','♦','♣','JK'];
+  const nums=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  if(!suits.includes(c.suit)||!(c.suit==='JK'?c.num==='JOKER':nums.includes(c.num)))return '不明';
+  return c.suit==='JK'?'🃏 JOKER':c.suit+c.num;
+}
+function drawPublicPreview_(data){
+  const body=document.getElementById('publicPreviewBody');
+  body.replaceChildren();
+  const state=data.state;
+  if(!state||state.schema!==1||!Array.isArray(state.zones)||!Array.isArray(state.handCounts)){
+    body.appendChild(previewElement_('span','まだ公開盤面が保存されていません。'));return;
+  }
+  const panel=(title)=>{
+    const div=document.createElement('div');
+    div.style.cssText='background:#101b30;border:1px solid #264c70;border-radius:5px;padding:7px;min-width:125px;flex:1;';
+    const head=previewElement_('strong',title);head.style.color='#85c1e9';div.appendChild(head);body.appendChild(div);return div;
+  };
+  const summary=panel('共通情報');
+  summary.appendChild(previewElement_('div','山札：'+state.deckCount+'枚'));
+  summary.appendChild(previewElement_('div','捨札：'+state.discardCount+'枚'));
+  summary.appendChild(previewElement_('div','捨札トップ：'+(state.discardTop?publicCardLabel_(state.discardTop):'なし')));
+  for(const h of state.handCounts){
+    if(!/^gm$|^pl[1-5]$/.test(String(h.id)))continue;
+    summary.appendChild(previewElement_('div',h.id.toUpperCase()+'手札：'+h.count+'枚'));
+  }
+  for(const z of state.zones){
+    if(!/^gm$|^pl[1-5]$/.test(String(z.id)))continue;
+    const div=panel(z.id.toUpperCase()+'の場');
+    for(const row of ['upper','lower']){
+      const cards=Array.isArray(z[row])?z[row]:[];
+      div.appendChild(previewElement_('div',(row==='upper'?'上段：':'下段：')+(cards.map(publicCardLabel_).join('  ')||'なし')));
+    }
+  }
+}
+async function refreshPublicPreview(manual=false){
+  if(publicPreviewLoading||!publicPreviewSession)return;
+  publicPreviewLoading=true;
+  const status=document.getElementById('publicPreviewStatus');
+  try{
+    const data=await getPublicBoard(publicPreviewSession);
+    if(data.status==='NONE'){
+      if(status)status.textContent='このセッションの保存済み公開盤面はありません（またはセッション終了済み）。';
+      document.getElementById('publicPreviewBody').replaceChildren();publicPreviewVersion=null;
+    }else if(data.status==='OK'){
+      const changed=data.version!==publicPreviewVersion;
+      if(changed||manual){drawPublicPreview_(data);publicPreviewVersion=data.version;}
+      if(status)status.textContent='取得成功 / 保存版 v'+data.version+' / 確認 '+new Date().toLocaleTimeString('ja-JP')+(changed?'（更新あり）':'（変更なし）');
+    }else{throw new Error('予期しない応答');}
+  }catch(err){
+    console.error('公開盤面の取得エラー',err);
+    if(status)status.textContent='通信エラー：公開盤面を取得できません。次回自動再試行します。';
+  }finally{publicPreviewLoading=false;}
+}
+function startPublicPreview(sid){
+  publicPreviewSession=sid;publicPreviewVersion=null;
+  const preview=document.getElementById('publicBoardPreview');
+  preview.style.display='';
+  if(publicPreviewTimer!==null)clearInterval(publicPreviewTimer);
+  refreshPublicPreview(true);
+  publicPreviewTimer=setInterval(()=>{if(!document.hidden)refreshPublicPreview();},4000);
+}
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 let sessionMode='new';
 function showSessionId(id){
@@ -949,6 +1024,7 @@ function enterTool(role,sid){
     document.getElementById('topbar').appendChild(d);
   }
   updateZoneNameInputs();buildZones();refreshSelects();hands={};initDeck();
+  startPublicPreview(sid);
 }
 async function initAuth(){
   const urlId=getUrlSessionId();
