@@ -892,13 +892,22 @@ async function refreshPublicPreview(manual=false){
     if(status)status.textContent='通信エラー：公開盤面を取得できません。次回自動再試行します。';
   }finally{publicPreviewLoading=false;}
 }
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden && publicPreviewSession)refreshPublicPreview(true);
+});
+window.addEventListener('focus',()=>{
+  if(publicPreviewSession)refreshPublicPreview(true);
+});
 function startPublicPreview(sid){
   publicPreviewSession=sid;publicPreviewVersion=null;
   const preview=document.getElementById('publicBoardPreview');
   preview.style.display='';
   if(publicPreviewTimer!==null)clearInterval(publicPreviewTimer);
   refreshPublicPreview(true);
-  publicPreviewTimer=setInterval(()=>{if(!document.hidden)refreshPublicPreview();},4000);
+  // 他のウィンドウでPLを操作している間も公開情報を取得する。
+  // 非アクティブタブではブラウザがタイマーを間引く場合があるため、
+  // GM画面へ戻った際にも即時取得する。
+  publicPreviewTimer=setInterval(()=>refreshPublicPreview(),4000);
 }
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 let sessionMode='new';
