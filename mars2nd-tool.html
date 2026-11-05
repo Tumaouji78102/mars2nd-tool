@@ -291,6 +291,20 @@ input[type=text] { width: 72px; }
     <span class="note" id="publicSaveStatus">未保存</span></div>
   </div>
 
+  <div class="tb-section" id="plHandReportControls" style="display:none;">
+    <div class="tb-title">P3-3a 手札枚数共有（PL・試験用）</div>
+    <div class="tb-row">
+      <label for="plReportSlot">担当：</label>
+      <select id="plReportSlot" onchange="choosePLReportSlot()">
+        <option value="">PL枠を選択</option>
+        <option value="pl1">PL1</option><option value="pl2">PL2</option>
+        <option value="pl3">PL3</option><option value="pl4">PL4</option><option value="pl5">PL5</option>
+      </select>
+      <button id="plReportButton" onclick="reportPLHandCount(true)">枚数を送信</button>
+      <span class="note" id="plReportStatus">枠を選ぶと自動報告</span>
+    </div>
+  </div>
+
   <div class="tb-section spacer"></div>
 
   <div class="tb-section">
@@ -365,7 +379,7 @@ input[type=text] { width: 72px; }
       </div>
       <div id="publicPreviewStatus" class="note" role="status" style="margin:5px 0;white-space:normal;">接続待ち</div>
       <div id="publicPreviewBody" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
-      <p class="note" style="margin-top:6px;white-space:normal;">これはサーバーに保存された公開情報の写しです。上のカード操作盤面はまだ同期しません。GMの「公開情報を保存」で更新されます。</p>
+      <p class="note" style="margin-top:6px;white-space:normal;">これはサーバーに保存された公開情報の写しです。上のカード操作盤面はまだ同期しません。GMの「公開情報を保存」で場を更新。PLの手札枚数は各PLが担当枠を選ぶと送信されます。</p>
     </section>
     <div id="compareArea"></div>
     <div id="fieldZones"></div>
@@ -607,7 +621,7 @@ function renderDiscardTop(){
 }
 
 /* ── レンダリング ── */
-function render(){ renderOnly(); autoReshuffleCheck(); }
+function render(){ renderOnly(); autoReshuffleCheck(); schedulePLHandReport(); }
 function renderOnly(){
   const L=lim();
   document.getElementById('deckCount').textContent=deck.length;
@@ -768,6 +782,57 @@ async function savePublicBoard(){
     alert('公開盤面の保存を確認できませんでした：'+err.message);
   }finally{savingPublicBoard=false;if(button)button.disabled=false;}
 }
+// P3-3a: PLが自分のブラウザの手札「枚数だけ」を報告する暫定経路。
+// PL枠は本人認証されていない。カードの正体やカードIDは一切送信しない。
+let plReportRole='',plReportTimer=null,plReportBusy=false,plReportLastSuccess=null;
+function plReportMessage_(message){const el=document.getElementById('plReportStatus');if(el)el.textContent=message;}
+function choosePLReportSlot(){
+  plReportRole=document.getElementById('plReportSlot').value;
+  plReportLastSuccess=null;
+  if(plReportTimer!==null)clearTimeout(plReportTimer);
+  if(!plReportRole){plReportMessage_('PL枠を選択してください');return;}
+  plReportMessage_(plReportRole.toUpperCase()+' として送信準備中');
+  schedulePLHandReport();
+}
+function schedulePLHandReport(){
+  if(!plReportRole||!currentSessionId||gmCredential)return;
+  if(plReportTimer!==null)clearTimeout(plReportTimer);
+  plReportTimer=setTimeout(()=>{plReportTimer=null;reportPLHandCount(false);},900);
+}
+async function reportPLHandCount(manual=false){
+  if(plReportBusy)return;
+  if(!plReportRole||!/^pl[1-5]$/.test(plReportRole)){
+    if(manual)alert('まず担当PL枠を選択してください。');return;
+  }
+  if(!currentSessionId)return;
+  const slot=plReportRole,count=hand.length;
+  if(!manual&&plReportLastSuccess===slot+':'+count)return;
+  plReportBusy=true;
+  const btn=document.getElementById('plReportButton');if(btn)btn.disabled=true;
+  plReportMessage_('枚数 '+count+' を送信・確認中…');
+  try{
+    // 公開GASへは秘密札の内容を渡さない。no-cors POST の後、GETで保存結果を検証する。
+    const body=new URLSearchParams({action:'report-hand-count',id:currentSessionId,role:slot,count:String(count)});
+    await fetch(GAS_URL,{method:'POST',mode:'no-cors',body});
+    let ok=false;
+    for(let i=0;i<7;i++){
+      await new Promise(r=>setTimeout(r,450));
+      const data=await getPublicBoard(currentSessionId);
+      if(data.status==='OK'&&data.reportedCounts&&data.reportedCounts[slot]===count){ok=true;break;}
+    }
+    if(!ok)throw new Error('報告値をサーバーで確認できません');
+    plReportLastSuccess=slot+':'+count;
+    plReportMessage_(slot.toUpperCase()+' '+count+'枚：送信済');
+    refreshPublicPreview(true);
+  }catch(err){
+    console.error('PL手札枚数報告エラー',err);
+    plReportMessage_('報告失敗・再送信してください');
+    if(manual)alert('枚数の報告を確認できませんでした：'+err.message);
+  }finally{
+    plReportBusy=false;if(btn)btn.disabled=false;
+    if(plReportRole===slot && hand.length!==count)schedulePLHandReport();
+  }
+}
 // P3-2: 保存済み公開盤面の読み取り専用プレビュー。ローカルのカード配列は一切変更しない。
 let publicPreviewTimer=null,publicPreviewLoading=false,publicPreviewVersion=null,publicPreviewSession=null;
 function previewElement_(tag,text){const el=document.createElement(tag);if(text!==undefined)el.textContent=String(text);return el;}
@@ -796,7 +861,7 @@ function drawPublicPreview_(data){
   summary.appendChild(previewElement_('div','捨札トップ：'+(state.discardTop?publicCardLabel_(state.discardTop):'なし')));
   for(const h of state.handCounts){
     if(!/^gm$|^pl[1-5]$/.test(String(h.id)))continue;
-    summary.appendChild(previewElement_('div',h.id.toUpperCase()+'手札：'+h.count+'枚'));
+    summary.appendChild(previewElement_('div',h.id.toUpperCase()+'手札：'+(h.id!=='gm'&&data.reportedCounts&&!Object.prototype.hasOwnProperty.call(data.reportedCounts,h.id)?'未報告':h.count+'枚')));
   }
   for(const z of state.zones){
     if(!/^gm$|^pl[1-5]$/.test(String(z.id)))continue;
@@ -817,9 +882,10 @@ async function refreshPublicPreview(manual=false){
       if(status)status.textContent='このセッションの保存済み公開盤面はありません（またはセッション終了済み）。';
       document.getElementById('publicPreviewBody').replaceChildren();publicPreviewVersion=null;
     }else if(data.status==='OK'){
-      const changed=data.version!==publicPreviewVersion;
-      if(changed||manual){drawPublicPreview_(data);publicPreviewVersion=data.version;}
-      if(status)status.textContent='取得成功 / 保存版 v'+data.version+' / 確認 '+new Date().toLocaleTimeString('ja-JP')+(changed?'（更新あり）':'（変更なし）');
+      const currentVersion=String(data.version)+':'+String(data.countRevision||0);
+      const changed=currentVersion!==publicPreviewVersion;
+      if(changed||manual){drawPublicPreview_(data);publicPreviewVersion=currentVersion;}
+      if(status)status.textContent='取得成功 / 保存版 v'+data.version+' / 枚数版 v'+(data.countRevision||0)+' / 確認 '+new Date().toLocaleTimeString('ja-JP')+(changed?'（更新あり）':'（変更なし）');
     }else{throw new Error('予期しない応答');}
   }catch(err){
     console.error('公開盤面の取得エラー',err);
@@ -1004,6 +1070,7 @@ function setupCardTooltip(){
 }
 
 function enterTool(role,sid){
+  currentSessionId=sid;
   const as=document.getElementById('authScreen');
   as.classList.add('hidden');
   as.style.display='none';
@@ -1012,6 +1079,9 @@ function enterTool(role,sid){
   setupCardTooltip();
   const b=document.getElementById('sessionBadge');
   b.textContent=role+'モード　セッション: '+sid;b.classList.add('visible');
+  if(role==='PL'){
+    document.getElementById('plHandReportControls').style.display='';
+  }
   if(role==='GM'){
     document.getElementById('publicStateControls').style.display='';
     // 既存のセッション終了ボタンがあれば削除
