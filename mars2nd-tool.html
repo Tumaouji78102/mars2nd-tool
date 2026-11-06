@@ -360,6 +360,11 @@ input[type=text] { width: 72px; }
         ondragleave="onDragLeave(event)"
         ondrop="onDrop(event,'hand','')">
       </div>
+      <div id="sharedIntegratedHand" style="display:none;margin-top:6px;border:1px solid #3888a7;border-radius:5px;padding:6px;flex-shrink:0;background:#10273a;">
+        <div class="area-title">P3-3c 共通山札で引いた本人の手札（閲覧専用）</div>
+        <div id="sharedIntegratedCards" style="display:flex;flex-wrap:wrap;gap:3px;min-height:24px;"></div>
+        <div class="note" style="white-space:normal;">この札はGASで管理。まだドラッグ移動・捨札への移動はできません。</div>
+      </div>
     </div>
 
   </div><!-- /left-col -->
@@ -402,6 +407,10 @@ input[type=text] { width: 72px; }
           <input id="sharedClaimInvite" type="text" style="width:245px" placeholder="GMから受け取った48桁の招待コード">
           <button onclick="sharedClaim()">本人登録</button>
           <button onclick="sharedDraw()">共通山札から1枚引く</button>
+        </div>
+        <div style="margin:8px 0;padding:7px;border:1px dashed #488bb0;border-radius:4px;">
+          <label><input type="checkbox" id="sharedDragMode" onchange="sharedToggleDragMode_()"> P3-3c 共通山札ドラッグ試験を有効化</label>
+          <div class="note" style="white-space:normal;">本人登録後、左の山札から手札へドラッグするとGASの共通山札から1枚引きます。通常のローカル山札には影響しません。共通山札から場・捨札へのドラッグは未対応です。</div>
         </div>
         <div id="sharedMyHand" style="margin-top:6px;font-size:12px;">未登録</div>
       </div>
@@ -528,6 +537,10 @@ function toggleSelectCard(i){ hand[i].selected=!hand[i].selected; render(); }
 
 /* ── ドラッグ＆ドロップ ── */
 function onDeckDragStart(e){
+  if(sharedDragEnabled_()){
+    if(sharedRemaining===null||sharedRemaining<=0||sharedBusy){e.preventDefault();return;}
+    dragSrc={from:'shared-deck'};e.dataTransfer.effectAllowed='move';return;
+  }
   if(!deck.length){ e.preventDefault(); return; }
   dragSrc={from:'deck'}; e.dataTransfer.effectAllowed='move';
 }
@@ -545,7 +558,7 @@ function onDragEnd(e){
 function onDragOver(e,to){
   e.preventDefault();
   let cls='drag-over';
-  if(dragSrc&&dragSrc.from==='deck') cls='drag-over-deck';
+  if(dragSrc&&(dragSrc.from==='deck'||dragSrc.from==='shared-deck')) cls='drag-over-deck';
   else if(to==='discard') cls='drag-over-discard';
   e.currentTarget.classList.add(cls);
 }
@@ -556,6 +569,12 @@ function onDrop(e,to,toKey){
   e.currentTarget.classList.remove('drag-over','drag-over-deck','drag-over-discard');
   if(!dragSrc) return;
   const src=dragSrc; dragSrc=null;
+
+  if(src.from==='shared-deck'){
+    if(to!=='hand'){sharedMessage_('共通山札から引けるのは自分の手札のみです');return;}
+    if(!sharedDragEnabled_()){sharedMessage_('ドラッグ試験が無効です');return;}
+    sharedDraw();return;
+  }
 
   if(src.from==='discard'){
     if(!discard.length) return;
@@ -572,6 +591,7 @@ function onDrop(e,to,toKey){
   }
 
   if(src.from==='deck'){
+    if(sharedDragEnabled_()){sharedMessage_('共通山札モードではローカル山札を使用できません');return;}
     if(!deck.length){ alert('山札が空です'); return; }
     if(to==='hand'){
       const L=lim();
@@ -656,6 +676,7 @@ function renderOnly(){
   document.getElementById('deckCount').textContent=deck.length;
   document.getElementById('discardCount').textContent=discard.length;
   document.getElementById('deckStack').className='deck-stack'+(deck.length===0?' empty':'');
+  sharedPaintDeck_();
   const over=hand.length>L;
   document.getElementById('handCountBadge').textContent=hand.length;
   document.getElementById('handCountLabel').innerHTML=`現在 <span class="count-badge">${hand.length}</span>枚`+(over?'　<span class="warn-text">⚠上限超過</span>':'');
@@ -941,6 +962,42 @@ function startPublicPreview(sid){
 
 /* P3-3b: 本番カード盤面とは独立した共通山札パイロット。 */
 let sharedRole='',sharedToken='',sharedTimer=null,sharedBusy=false;
+// P3-3c: ローカル操作を保護するため、本人が明示的に選んだときだけ接続。
+let sharedRemaining=null,sharedCardsSnapshot=[];
+function sharedDragEnabled_(){return !!(sharedRole&&sharedToken&&document.getElementById('sharedDragMode')?.checked);}
+function sharedToggleDragMode_(){
+  const cb=document.getElementById('sharedDragMode');
+  if(cb.checked&&(!sharedRole||!sharedToken)){
+    cb.checked=false;sharedMessage_('先にPL本人登録してください');
+  }
+  renderOnly();sharedPaintHand_();
+  if(cb.checked)sharedRefresh(true);
+}
+function sharedPaintDeck_(){
+  if(!sharedDragEnabled_())return;
+  const count=document.getElementById('deckCount');
+  if(count)count.textContent=sharedRemaining===null?'…':String(sharedRemaining);
+  const stack=document.getElementById('deckStack');
+  if(stack)stack.className='deck-stack'+(sharedRemaining===null||sharedRemaining===0?' empty':'');
+}
+function sharedPaintHand_(){
+  const box=document.getElementById('sharedIntegratedHand');
+  const contents=document.getElementById('sharedIntegratedCards');
+  if(!box||!contents)return;
+  box.style.display=sharedDragEnabled_()?'':'none';
+  contents.replaceChildren();
+  if(!sharedDragEnabled_())return;
+  if(!sharedCardsSnapshot.length){contents.textContent='共通山札の手札：0枚';return;}
+  for(const c of sharedCardsSnapshot){
+    const span=document.createElement('div');
+    span.className='card'+(c.suit==='JK'?' joker':(['♥','♦'].includes(c.suit)?' red':''));
+    span.draggable=false;span.style.cursor='default';span.style.margin='2px';
+    const suit=document.createElement('span');suit.className='card-suit';suit.textContent=c.suit==='JK'?'🃏':c.suit;
+    const num=document.createElement('span');num.className='card-num';num.textContent=c.suit==='JK'?'':c.num;
+    span.append(suit,num);contents.appendChild(span);
+  }
+}
+
 function sharedMessage_(s){const el=document.getElementById('sharedPilotStatus');if(el)el.textContent=s;}
 function sharedRandom_(){const a=new Uint8Array(24);crypto.getRandomValues(a);return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');}
 function sharedStoreKey_(role){return 'mars2nd-p33b:'+currentSessionId+':'+role;}
@@ -961,17 +1018,20 @@ async function sharedRefresh(manual=false){
     const st=await sharedGet_('shared-status');
     if(st.status!=='OK'){
       document.getElementById('sharedPublicCounts').textContent='共通山札は未作成です。';
+      sharedRemaining=null;sharedPaintDeck_();
       if(manual)sharedMessage_('共通山札はまだありません');
     }else{
       const seats=Object.entries(st.slots||{}).map(([r,v])=>r.toUpperCase()+':'+v.count+'枚'+(v.claimed?'（登録済）':v.invited?'（招待済）':'')).join(' ／ ');
       document.getElementById('sharedPublicCounts').textContent='共通山札：'+st.remaining+'/'+st.initialCount+'枚　更新v'+st.version+'　'+seats;
+      sharedRemaining=st.remaining;sharedPaintDeck_();
       if(manual)sharedMessage_('更新成功 v'+st.version);
     }
     if(sharedRole&&sharedToken){
       const personal=await sharedGet_('shared-hand',{role:sharedRole,token:sharedToken});
       if(personal.status==='OK'){
         document.getElementById('sharedMyHand').textContent='自分（'+sharedRole.toUpperCase()+'）の手札：'+personal.cards.map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')+'（'+personal.cards.length+'枚）';
-      }else{document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';}
+        sharedCardsSnapshot=personal.cards;sharedPaintHand_();
+      }else{document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';sharedCardsSnapshot=[];sharedPaintHand_();}
     }
   }catch(e){if(manual)sharedMessage_('取得失敗：'+e.message);}
 }
