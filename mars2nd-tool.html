@@ -381,6 +381,35 @@ input[type=text] { width: 72px; }
       <div id="publicPreviewBody" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
       <p class="note" style="margin-top:6px;white-space:normal;">これはサーバーに保存された公開情報の写しです。上のカード操作盤面はまだ同期しません。GMの「公開情報を保存」で場を更新。PLの手札枚数は各PLが担当枠を選ぶと送信されます。</p>
     </section>
+    <section id="sharedPilotPanel" style="display:none;background:#14243a;border:1px solid #5b91b7;border-radius:6px;padding:10px;flex-shrink:0;" aria-label="P3-3b 共通山札試験">
+      <strong style="color:#acd9f3;">P3-3b 共通山札・参加者認証（試験用／独立）</strong>
+      <p class="note" style="white-space:normal;margin:5px 0;">※既存のカード操作盤面と連動しません。ここだけで共通山札からドローを確認します。通常の手札枚数共有とは別です。</p>
+      <div id="sharedPilotGM" style="display:none;margin:8px 0;">
+        <button onclick="sharedInit()">共通山札を一度だけ作成</button>
+        <label style="margin-left:5px;"><input type="checkbox" id="sharedJoker"> ジョーカー1枚追加</label>
+        <div style="margin-top:8px;display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+          <label for="sharedInviteSlot">招待先：</label>
+          <select id="sharedInviteSlot"><option value="pl1">PL1</option><option value="pl2">PL2</option><option value="pl3">PL3</option><option value="pl4">PL4</option><option value="pl5">PL5</option></select>
+          <button onclick="sharedMakeInvite()">招待コードを発行</button>
+          <input id="sharedInviteResult" type="text" readonly style="width:240px" placeholder="発行後ここに表示">
+          <button onclick="sharedCopyInvite()">招待コードをコピー</button>
+        </div>
+      </div>
+      <div id="sharedPilotPL" style="display:none;margin:8px 0;">
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+          <label for="sharedClaimSlot">本人枠：</label>
+          <select id="sharedClaimSlot"><option value="pl1">PL1</option><option value="pl2">PL2</option><option value="pl3">PL3</option><option value="pl4">PL4</option><option value="pl5">PL5</option></select>
+          <input id="sharedClaimInvite" type="text" style="width:245px" placeholder="GMから受け取った48桁の招待コード">
+          <button onclick="sharedClaim()">本人登録</button>
+          <button onclick="sharedDraw()">共通山札から1枚引く</button>
+        </div>
+        <div id="sharedMyHand" style="margin-top:6px;font-size:12px;">未登録</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+        <button onclick="sharedRefresh(true)">共通山札を更新</button><span id="sharedPilotStatus" class="note" style="white-space:normal;">未取得</span>
+      </div>
+      <div id="sharedPublicCounts" style="font-size:12px;margin-top:5px;"></div>
+    </section>
     <div id="compareArea"></div>
     <div id="fieldZones"></div>
     <div style="height:60vh;flex-shrink:0;"></div>
@@ -909,6 +938,131 @@ function startPublicPreview(sid){
   // GM画面へ戻った際にも即時取得する。
   publicPreviewTimer=setInterval(()=>refreshPublicPreview(),4000);
 }
+
+/* P3-3b: 本番カード盤面とは独立した共通山札パイロット。 */
+let sharedRole='',sharedToken='',sharedTimer=null,sharedBusy=false;
+function sharedMessage_(s){const el=document.getElementById('sharedPilotStatus');if(el)el.textContent=s;}
+function sharedRandom_(){const a=new Uint8Array(24);crypto.getRandomValues(a);return Array.from(a,b=>b.toString(16).padStart(2,'0')).join('');}
+function sharedStoreKey_(role){return 'mars2nd-p33b:'+currentSessionId+':'+role;}
+async function sharedGet_(action,extra={}){
+  const q=new URLSearchParams({action,id:currentSessionId,...extra,_:String(Date.now())});
+  const res=await fetch(GAS_URL+'?'+q.toString(),{cache:'no-store'});
+  if(!res.ok)throw new Error('GAS HTTP '+res.status);
+  return await res.json();
+}
+async function sharedPost_(action,extra={}){
+  const q=new URLSearchParams({action,id:currentSessionId,...extra});
+  await fetch(GAS_URL,{method:'POST',mode:'no-cors',body:q});
+  // POSTの応答は読み取れないため、必ずGETで反映を確認する。
+}
+async function sharedRefresh(manual=false){
+  if(!currentSessionId||sharedBusy)return;
+  try{
+    const st=await sharedGet_('shared-status');
+    if(st.status!=='OK'){
+      document.getElementById('sharedPublicCounts').textContent='共通山札は未作成です。';
+      if(manual)sharedMessage_('共通山札はまだありません');
+    }else{
+      const seats=Object.entries(st.slots||{}).map(([r,v])=>r.toUpperCase()+':'+v.count+'枚'+(v.claimed?'（登録済）':v.invited?'（招待済）':'')).join(' ／ ');
+      document.getElementById('sharedPublicCounts').textContent='共通山札：'+st.remaining+'/'+st.initialCount+'枚　更新v'+st.version+'　'+seats;
+      if(manual)sharedMessage_('更新成功 v'+st.version);
+    }
+    if(sharedRole&&sharedToken){
+      const personal=await sharedGet_('shared-hand',{role:sharedRole,token:sharedToken});
+      if(personal.status==='OK'){
+        document.getElementById('sharedMyHand').textContent='自分（'+sharedRole.toUpperCase()+'）の手札：'+personal.cards.map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')+'（'+personal.cards.length+'枚）';
+      }else{document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';}
+    }
+  }catch(e){if(manual)sharedMessage_('取得失敗：'+e.message);}
+}
+function sharedStart_(role){
+  document.getElementById('sharedPilotPanel').style.display='';
+  document.getElementById(role==='GM'?'sharedPilotGM':'sharedPilotPL').style.display='';
+  if(role==='PL'){
+    // 同一タブの再読み込みだけ復帰。別タブ・別PCでのPL復帰は後工程。
+    for(let i=1;i<=5;i++){
+      const token=sessionStorage.getItem(sharedStoreKey_('pl'+i));
+      if(token){sharedRole='pl'+i;sharedToken=token;document.getElementById('sharedClaimSlot').value=sharedRole;break;}
+    }
+  }
+  sharedRefresh(true);
+  if(sharedTimer)clearInterval(sharedTimer);
+  sharedTimer=setInterval(()=>sharedRefresh(false),4000);
+  window.addEventListener('focus',()=>sharedRefresh(false));
+}
+async function sharedConfirm_(check,max=8){
+  for(let i=0;i<max;i++){
+    await new Promise(resolve=>setTimeout(resolve,550));
+    if(await check())return true;
+  }
+  return false;
+}
+async function sharedInit(){
+  if(!gmCredential||sharedBusy)return;
+  if(!confirm('試験用の共通山札を作成します。既存の共通山札がある場合は上書きしません。'))return;
+  sharedBusy=true;sharedMessage_('共通山札の作成中…');
+  try{
+    const before=await sharedGet_('shared-status');
+    if(before.status==='OK')throw new Error('作成済みです。既存の山札を再生成しません。');
+    const joker=document.getElementById('sharedJoker').checked?'1':'0';
+    await sharedPost_('shared-init',{gmKey:gmCredential,joker});
+    const ok=await sharedConfirm_(async()=> (await sharedGet_('shared-status')).status==='OK');
+    if(!ok)throw new Error('作成を確認できません');
+    sharedMessage_('作成成功');
+  }catch(e){sharedMessage_('作成失敗：'+e.message);}finally{sharedBusy=false;sharedRefresh(true);}
+}
+async function sharedMakeInvite(){
+  if(!gmCredential||sharedBusy)return;
+  const role=document.getElementById('sharedInviteSlot').value;
+  sharedBusy=true;sharedMessage_('招待発行中…');
+  try{
+    const code=sharedRandom_();
+    const before=await sharedGet_('shared-status');
+    if(before.status!=='OK'||before.slots[role].claimed||before.slots[role].invited)throw new Error('山札が未作成、またはPL枠に招待発行済み／登録済みです');
+    await sharedPost_('shared-invite',{gmKey:gmCredential,role,invite:code});
+    const ok=await sharedConfirm_(async()=>{const v=await sharedGet_('shared-status');return v.status==='OK'&&v.slots[role].invited;});
+    if(!ok)throw new Error('招待の保存を確認できません');
+    document.getElementById('sharedInviteResult').value=code;
+    sharedMessage_(role.toUpperCase()+' 招待コード発行成功。PLにコードを渡してください。');
+  }catch(e){sharedMessage_('招待失敗：'+e.message);}finally{sharedBusy=false;sharedRefresh(true);}
+}
+async function sharedCopyInvite(){
+  const code=document.getElementById('sharedInviteResult').value;
+  if(!code){sharedMessage_('先に招待コードを発行してください');return;}
+  try{await navigator.clipboard.writeText(code);sharedMessage_('招待コードをコピーしました');}
+  catch(e){sharedMessage_('コピー不可。表示欄から手動コピーしてください');}
+}
+async function sharedClaim(){
+  if(sharedBusy)return;
+  const role=document.getElementById('sharedClaimSlot').value;
+  const invite=document.getElementById('sharedClaimInvite').value.trim().toLowerCase();
+  if(!/^[a-f0-9]{48}$/.test(invite)){sharedMessage_('48桁の招待コードを入力してください');return;}
+  if(sharedRole&&sharedRole!==role){sharedMessage_('このタブでは既に別のPL枠に登録済みです');return;}
+  sharedBusy=true;sharedMessage_('本人登録中…');
+  try{
+    // 本人だけが所有する秘密トークン。GMへ送らず、GASへハッシュで保管。
+    const token=sharedRandom_();
+    await sharedPost_('shared-claim',{role,invite,token});
+    const ok=await sharedConfirm_(async()=>{const a=await sharedGet_('shared-hand',{role,token});return a.status==='OK';});
+    if(!ok)throw new Error('本人登録を確認できません（招待コードまたはPL枠を確認）');
+    sharedRole=role;sharedToken=token;
+    sessionStorage.setItem(sharedStoreKey_(role),token);
+    document.getElementById('sharedClaimInvite').value='';
+    sharedMessage_(role.toUpperCase()+' の本人登録成功');
+  }catch(e){sharedMessage_('登録失敗：'+e.message);}finally{sharedBusy=false;sharedRefresh(true);}
+}
+async function sharedDraw(){
+  if(!sharedRole||!sharedToken||sharedBusy){sharedMessage_('先に本人登録してください');return;}
+  sharedBusy=true;sharedMessage_('共通山札からドロー中…');
+  try{
+    const op=sharedRandom_();
+    await sharedPost_('shared-draw',{role:sharedRole,token:sharedToken,op});
+    const ok=await sharedConfirm_(async()=>{const a=await sharedGet_('shared-hand',{role:sharedRole,token:sharedToken});return a.status==='OK'&&a.lastAction===op;});
+    if(!ok)throw new Error('ドローを確認できません。重複防止のため再クリック前に状態を確認してください');
+    sharedMessage_('1枚ドロー成功');
+  }catch(e){sharedMessage_('ドロー失敗：'+e.message);}finally{sharedBusy=false;sharedRefresh(true);}
+}
+
 async function hashText(t){const d=new TextEncoder().encode(t);const b=await crypto.subtle.digest('SHA-256',d);return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 let sessionMode='new';
 function showSessionId(id){
@@ -1104,6 +1258,7 @@ function enterTool(role,sid){
   }
   updateZoneNameInputs();buildZones();refreshSelects();hands={};initDeck();
   startPublicPreview(sid);
+  sharedStart_(role);
 }
 async function initAuth(){
   const urlId=getUrlSessionId();
