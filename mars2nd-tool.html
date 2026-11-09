@@ -422,7 +422,7 @@ input[type=text] { width: 72px; }
     </section>
     <section id="sharedFieldPanel" style="display:none;background:#122d31;border:1px solid #329b92;border-radius:6px;padding:9px;flex-shrink:0;" aria-label="P3-3d 共通の場">
       <strong style="color:#a9efe2;">P3-3d GAS共通の場（試験用）</strong>
-      <p class="note" style="white-space:normal;">通常の場とは別表示。PL本人が共通手札から自分の場へ移動できます。上段＝表向き、下段＝裏向き。移動後の戻し・捨札は未対応です。</p>
+      <p class="note" style="white-space:normal;">通常の場とは別表示。上段・下段は用途の違いであり、どちらも原則裏向きです。本人登録後は自分の枠にカードをドロップできます。場からの戻し・捨札は未対応です。</p>
       <div id="sharedFieldContents" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;"></div>
     </section>
     <div id="compareArea"></div>
@@ -584,9 +584,7 @@ function onDrop(e,to,toKey){
   if(src.from==='shared-hand'){
     if(!sharedDragEnabled_()){sharedMessage_('共通手札の移動モードが無効です');return;}
     if(to!=='field'){sharedMessage_('共通手札からの移動先は自分の場のみです');return;}
-    const [zid,row]=toKey.split('|');
-    if(zid!==sharedRole){sharedMessage_('共通手札は自分の場だけに置けます');return;}
-    sharedPlace_(src.suit,src.num,row);return;
+    sharedMessage_('共通手札は「P3-3d GAS共通の場」の自分の枠へドロップしてください');return;
   }
 
   if(src.from==='discard'){
@@ -1021,10 +1019,23 @@ function sharedPaintOwnField_(){
   const el=document.getElementById('sharedOwnFieldCards');
   if(!el)return;
   el.style.display=sharedRole&&sharedToken?'':'none';
-  if(!sharedRole||!sharedToken)return;
+  if(!sharedRole||!sharedToken){el.textContent='';return;}
   const f=sharedOwnField||{upper:[],lower:[]};
   const describe=cards=>(cards||[]).map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')||'なし';
-  el.textContent='本人専用・自分の場：上段 '+describe(f.upper)+' ／ 下段（他人には裏向き） '+describe(f.lower);
+  el.textContent='【本人だけに表示】自分の場：上段 '+describe(f.upper)+' ／ 下段 '+describe(f.lower);
+}
+function sharedFieldDragOver_(e,role){
+  if(dragSrc?.from==='shared-hand' && sharedDragEnabled_() && role===sharedRole){
+    e.preventDefault();e.dataTransfer.dropEffect='move';
+    e.currentTarget.classList.add('drag-over');
+  }
+}
+function sharedFieldDrop_(e,role,row){
+  e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove('drag-over');
+  const src=dragSrc;dragSrc=null;
+  if(!src||src.from!=='shared-hand')return;
+  if(!sharedDragEnabled_()||role!==sharedRole){sharedMessage_('自分の共通の場にだけ移動できます');return;}
+  sharedPlace_(src.suit,src.num,row);
 }
 function sharedPaintField_(field){
   const panel=document.getElementById('sharedFieldPanel'),root=document.getElementById('sharedFieldContents');
@@ -1037,14 +1048,34 @@ function sharedPaintField_(field){
     const title=document.createElement('strong');title.textContent=role.toUpperCase()+'の共通の場';col.append(title);
     for(const row of ['upper','lower']){
       const p=document.createElement('div');p.className='note';p.style.marginTop='5px';
-      p.textContent=(row==='upper'?'上段（表向き）':'下段（裏向き）')+' '+(zone[row]||[]).length+'枚';col.append(p);
-      const cards=document.createElement('div');cards.style.cssText='display:flex;gap:3px;flex-wrap:wrap;min-height:65px;border:1px dashed #427c7a;padding:3px;';
+      p.textContent=(row==='upper'?'上段（判定・特技コスト）':'下段（その他）')+'：'+(zone[row]||[]).length+'枚／原則裏向き';col.append(p);
+      const cards=document.createElement('div');cards.className='drop-zone';
+      cards.style.cssText='display:flex;gap:3px;flex-wrap:wrap;min-height:75px;border:1px dashed #427c7a;padding:5px;align-items:flex-start;';
+      if(sharedRole===role&&sharedDragEnabled_()){
+        cards.style.border='2px dashed #56c7b5';
+        cards.title='共通手札からここへドロップ';
+      }
+      cards.addEventListener('dragover',e=>sharedFieldDragOver_(e,role));
+      cards.addEventListener('dragleave',e=>e.currentTarget.classList.remove('drag-over'));
+      cards.addEventListener('drop',e=>sharedFieldDrop_(e,role,row));
       for(const card of zone[row]||[]){
-        const el=document.createElement('div');el.className='card'+(card.down?' face-down':(['♥','♦'].includes(card.suit)?' red':card.suit==='JK'?' joker':''));
-        el.style.cursor='default';el.textContent=card.down?'🂠':card.suit==='JK'?'🃏':card.suit+card.num;
+        // 公開APIでは上下段ともカードの正体を返さない。
+        const el=document.createElement('div');el.className='card face-down';
+        el.style.cursor='default';el.textContent='🂠';
         cards.append(el);
       }
+      if(!(zone[row]||[]).length && sharedRole===role && sharedDragEnabled_()){
+        const hint=document.createElement('span');hint.className='note';hint.textContent='ここへドロップ';cards.append(hint);
+      }
       col.append(cards);
+    }
+    if(sharedRole===role&&sharedToken){
+      const detail=document.createElement('div');detail.className='note';
+      detail.style.cssText='white-space:normal;margin-top:6px;border-top:1px dotted #577;padding-top:5px;';
+      const f=sharedOwnField||{upper:[],lower:[]};
+      const describe=arr=>(arr||[]).map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')||'なし';
+      detail.textContent='本人のみ確認可：上段 '+describe(f.upper)+' ／ 下段 '+describe(f.lower);
+      col.append(detail);
     }
     root.append(col);
   }
@@ -1061,7 +1092,7 @@ async function sharedPlace_(suit,num,row){
       return a.status==='OK'&&a.lastAction===op;
     });
     if(!ok)throw new Error('移動の完了を確認できません。再操作する前に共通山札を更新してください');
-    sharedMessage_('自分の場の'+(row==='upper'?'上段（表向き）':'下段（裏向き）')+'へ移動成功');
+    sharedMessage_('自分の場の'+(row==='upper'?'上段':'下段')+'へ裏向きで移動成功');
   }catch(e){sharedMessage_('移動確認失敗：'+e.message);}
   finally{sharedBusy=false;sharedRefresh(true);}
 }
@@ -1086,7 +1117,7 @@ async function sharedRefresh(manual=false){
     if(st.status!=='OK'){
       document.getElementById('sharedPublicCounts').textContent='共通山札は未作成です。';
       sharedRemaining=null;sharedPaintDeck_();
-      document.getElementById('sharedFieldPanel').style.display='none';
+      sharedPaintField_({}); // 共通山札未作成でもパネルを表示する
       if(manual)sharedMessage_('共通山札はまだありません');
     }else{
       const seats=Object.entries(st.slots||{}).map(([r,v])=>r.toUpperCase()+':'+v.count+'枚'+(v.claimed?'（登録済）':v.invited?'（招待済）':'')).join(' ／ ');
@@ -1099,13 +1130,14 @@ async function sharedRefresh(manual=false){
       const personal=await sharedGet_('shared-hand',{role:sharedRole,token:sharedToken});
       if(personal.status==='OK'){
         document.getElementById('sharedMyHand').textContent='自分（'+sharedRole.toUpperCase()+'）の手札：'+personal.cards.map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')+'（'+personal.cards.length+'枚）';
-        sharedCardsSnapshot=personal.cards;sharedOwnField=personal.ownField||{upper:[],lower:[]};sharedPaintHand_();sharedPaintOwnField_();
+        sharedCardsSnapshot=personal.cards;sharedOwnField=personal.ownField||{upper:[],lower:[]};sharedPaintHand_();sharedPaintOwnField_();if(st.status==='OK')sharedPaintField_(st.field||{});
       }else{document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';sharedCardsSnapshot=[];sharedPaintHand_();}
     }
   }catch(e){if(manual)sharedMessage_('取得失敗：'+e.message);}
 }
 function sharedStart_(role){
   document.getElementById('sharedPilotPanel').style.display='';
+  sharedPaintField_({}); // 入室直後に必ず表示。取得完了待ちにしない
   document.getElementById(role==='GM'?'sharedPilotGM':'sharedPilotPL').style.display='';
   if(role==='PL'){
     // 同一タブの再読み込みだけ復帰。別タブ・別PCでのPL復帰は後工程。
