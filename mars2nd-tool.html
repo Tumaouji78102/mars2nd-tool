@@ -973,6 +973,10 @@ function startPublicPreview(sid){
 
 /* P3-3b: 本番カード盤面とは独立した共通山札パイロット。 */
 let sharedRole='',sharedToken='',sharedTimer=null,sharedBusy=false;
+// P3 性能改善①: 通信の重複・同一バージョンの再描画を抑止する。
+let sharedRefreshLoading=false,sharedLastPaintVersion=null,sharedLastPersonalVersion=null;
+let sharedLastCredentialKey='',sharedLastPublicField={},sharedFocusHandlerInstalled=false;
+
 // P3-3c: ローカル操作を保護するため、本人が明示的に選んだときだけ接続。
 let sharedRemaining=null,sharedCardsSnapshot=[],sharedOwnField={upper:[],lower:[]};
 function sharedDragEnabled_(){return !!(sharedRole&&sharedToken&&document.getElementById('sharedDragMode')?.checked);}
@@ -982,6 +986,8 @@ function sharedToggleDragMode_(){
     cb.checked=false;sharedMessage_('先にPL本人登録してください');
   }
   renderOnly();sharedPaintHand_();
+  // ドラッグ可能な枠線は通信更新を待たずに反映する。
+  sharedPaintField_(sharedLastPublicField);
   if(cb.checked)sharedRefresh(true);
 }
 function sharedPaintDeck_(){
@@ -1124,33 +1130,67 @@ async function sharedPost_(action,extra={}){
   // POSTの応答は読み取れないため、必ずGETで反映を確認する。
 }
 async function sharedRefresh(manual=false){
-  if(!currentSessionId||sharedBusy)return;
+  // setInterval / focus / 操作完了が重なっても、同時通信は1本だけ。
+  if(!currentSessionId||sharedBusy||sharedRefreshLoading)return;
+  sharedRefreshLoading=true;
+  const sid=currentSessionId;
   try{
     const st=await sharedGet_('shared-status');
-    if(st.status!=='OK'){
-      document.getElementById('sharedPublicCounts').textContent='共通山札は未作成です。';
-      sharedRemaining=null;sharedPaintDeck_();
-      sharedPaintField_({}); // 共通山札未作成でもパネルを表示する
-      if(manual)sharedMessage_('共通山札はまだありません');
-    }else{
-      const seats=Object.entries(st.slots||{}).map(([r,v])=>r.toUpperCase()+':'+v.count+'枚'+(v.claimed?'（登録済）':v.invited?'（招待済）':'')).join(' ／ ');
-      document.getElementById('sharedPublicCounts').textContent='共通山札：'+st.remaining+'/'+st.initialCount+'枚　更新v'+st.version+'　'+seats;
-      sharedRemaining=st.remaining;sharedPaintDeck_();
-      sharedPaintField_(st.field||{});
-      if(manual)sharedMessage_('更新成功 v'+st.version);
-    }
-    if(sharedRole&&sharedToken){
+    if(sid!==currentSessionId)return; // 古いセッションからの遅延応答を無視する。
+    const versionKey=st.status==='OK'?sid+':'+st.version:sid+':NONE';
+    const publicChanged=versionKey!==sharedLastPaintVersion;
+    const credentialKey=sharedRole&&sharedToken?sid+':'+sharedRole+':'+sharedToken:'';
+    const personalChanged=credentialKey!==sharedLastCredentialKey||versionKey!==sharedLastPersonalVersion;
+
+    // 秘密情報は本人認証APIからのみ取得。公開レスポンスに混ぜない。
+    // 公開状態の更新番号が変わらない限り、4秒ごとの秘密GETを省く。
+    if(credentialKey && personalChanged){
       const personal=await sharedGet_('shared-hand',{role:sharedRole,token:sharedToken});
+      if(sid!==currentSessionId)return;
       if(personal.status==='OK'){
         document.getElementById('sharedMyHand').textContent='自分（'+sharedRole.toUpperCase()+'）の手札：'+personal.cards.map(c=>c.suit==='JK'?'JOKER':c.suit+c.num).join('、')+'（'+personal.cards.length+'枚）';
-        sharedCardsSnapshot=personal.cards;sharedOwnField=personal.ownField||{upper:[],lower:[]};sharedPaintHand_();sharedPaintOwnField_();if(st.status==='OK')sharedPaintField_(st.field||{});
-      }else{document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';sharedCardsSnapshot=[];sharedPaintHand_();}
+        sharedCardsSnapshot=personal.cards;
+        sharedOwnField=personal.ownField||{upper:[],lower:[]};
+      }else{
+        document.getElementById('sharedMyHand').textContent='認証未完了／秘密トークンが無効です';
+        sharedCardsSnapshot=[];
+        sharedOwnField={upper:[],lower:[]};
+      }
+      sharedPaintHand_();
+      sharedPaintOwnField_();
+      sharedLastPersonalVersion=versionKey;
+      sharedLastCredentialKey=credentialKey;
     }
-  }catch(e){if(manual)sharedMessage_('取得失敗：'+e.message);}
+    if(publicChanged){
+      if(st.status!=='OK'){
+        document.getElementById('sharedPublicCounts').textContent='共通山札は未作成です。';
+        sharedRemaining=null;
+        sharedLastPublicField={};
+      }else{
+        const seats=Object.entries(st.slots||{}).map(([r,v])=>r.toUpperCase()+':'+v.count+'枚'+(v.claimed?'（登録済）':v.invited?'（招待済）':'')).join(' ／ ');
+        document.getElementById('sharedPublicCounts').textContent='共通山札：'+st.remaining+'/'+st.initialCount+'枚　更新v'+st.version+'　'+seats;
+        sharedRemaining=st.remaining;
+        sharedLastPublicField=st.field||{};
+      }
+      sharedPaintDeck_();
+    }
+    // 場のDOMは、公開状態か本人向け秘密情報に変化があったときだけ作り直す。
+    if(publicChanged || (credentialKey&&personalChanged)){
+      sharedPaintField_(sharedLastPublicField);
+      sharedLastPaintVersion=versionKey;
+    }
+    if(manual)sharedMessage_(st.status==='OK'?'更新成功 v'+st.version:'共通山札はまだありません');
+  }catch(e){
+    // 失敗した通信の版情報は確定させず、次回に再試行する。
+    if(manual)sharedMessage_('取得失敗：'+e.message);
+    else console.warn('共通山札の自動取得失敗',e);
+  }finally{sharedRefreshLoading=false;}
 }
 function sharedStart_(role){
   document.getElementById('sharedPilotPanel').style.display='';
-  sharedPaintField_({}); // 入室直後に必ず表示。取得完了待ちにしない
+  sharedLastPaintVersion=null;sharedLastPersonalVersion=null;
+  sharedLastCredentialKey='';sharedLastPublicField={};
+  sharedPaintField_({}); // 入室直後に必ず表示。取得完了待ちにしない。
   document.getElementById(role==='GM'?'sharedPilotGM':'sharedPilotPL').style.display='';
   if(role==='PL'){
     // 同一タブの再読み込みだけ復帰。別タブ・別PCでのPL復帰は後工程。
@@ -1162,7 +1202,11 @@ function sharedStart_(role){
   sharedRefresh(true);
   if(sharedTimer)clearInterval(sharedTimer);
   sharedTimer=setInterval(()=>sharedRefresh(false),4000);
-  window.addEventListener('focus',()=>sharedRefresh(false));
+  // enterTool が再実行されても focus リスナーを増殖させない。
+  if(!sharedFocusHandlerInstalled){
+    window.addEventListener('focus',()=>sharedRefresh(false));
+    sharedFocusHandlerInstalled=true;
+  }
 }
 async function sharedConfirm_(check,max=8){
   for(let i=0;i<max;i++){
