@@ -1058,12 +1058,25 @@ function sharedPaintField_(field){
       cards.addEventListener('dragover',e=>sharedFieldDragOver_(e,role));
       cards.addEventListener('dragleave',e=>e.currentTarget.classList.remove('drag-over'));
       cards.addEventListener('drop',e=>sharedFieldDrop_(e,role,row));
-      for(const card of zone[row]||[]){
-        // 公開APIでは上下段ともカードの正体を返さない。
+      const publicCards=zone[row]||[];
+      // GASの本人認証済みAPIだけが正体を返す。同じ長さを確認した上で順番に対応させる。
+      // 公開APIや他PL・GMのDOMには正体もツールチップ属性も載せない。
+      const ownCards=sharedRole===role&&sharedToken ? (sharedOwnField?.[row]||[]) : [];
+      const ownCardsMatch=ownCards.length===publicCards.length;
+      publicCards.forEach((card,index)=>{
         const el=document.createElement('div');el.className='card face-down';
         el.style.cursor='default';el.textContent='🂠';
+        if(ownCardsMatch && sharedRole===role && sharedToken){
+          const mine=ownCards[index];
+          if(mine && typeof mine.suit==='string' && typeof mine.num==='string'){
+            el.dataset.cardTooltip=mine.suit==='JK'?'🃏 JOKER':mine.suit+mine.num;
+            el.dataset.cardTone=mine.suit==='JK'?'joker':(['♥','♦'].includes(mine.suit)?'red':'black');
+            el.style.cursor='help';
+            el.title=''; // 既存の最前面ポップアップを使用し、ブラウザ標準のツールチップは出さない。
+          }
+        }
         cards.append(el);
-      }
+      });
       if(!(zone[row]||[]).length && sharedRole===role && sharedDragEnabled_()){
         const hint=document.createElement('span');hint.className='note';hint.textContent='ここへドロップ';cards.append(hint);
       }
